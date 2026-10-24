@@ -1,7 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global { interface Window { Telegram?: { WebApp: any } } }
@@ -16,21 +16,44 @@ export default function AdminPage() {
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState("");
 
-  useEffect(() => {
-    const t = setInterval(async () => {
-      const tg = window.Telegram?.WebApp;
-      if (!tg) return;
-      clearInterval(t);
-      tg.ready(); tg.expand();
-      try {
-        const r = await fetch("/api/admin/overview", { method: "POST", headers: { "x-init-data": tg.initData || "" } });
-        const j = await r.json();
-        if (!j.ok) setErr("Admins only. Open this from the bot's Open App button with an admin account.");
-        else setD(j);
-      } catch { setErr("Network error."); }
-    }, 100);
-    return () => clearInterval(t);
+  const load = useCallback(async () => {
+    const initData = window.Telegram?.WebApp?.initData || "";
+    try {
+      const r = await fetch("/api/admin/overview", { method: "POST", headers: { "x-init-data": initData } });
+      const j = await r.json().catch(() => null);
+      if (r.status === 401) setErr("Not logged in. In the bot send /admin login and open the link it gives you.");
+      else if (r.status === 403) setErr("This account is not an admin.");
+      else if (!r.ok || !j?.ok) setErr(`Server error (${r.status}). ${j?.message ?? "Check the Vercel logs."}`);
+      else setD(j);
+    } catch (e) {
+      setErr(`Couldn't reach the server (${String((e as Error).message)}).`);
+    }
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      const token = new URLSearchParams(location.search).get("token");
+      if (token) {
+        try {
+          const r = await fetch("/api/admin/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+          const j = await r.json().catch(() => null);
+          history.replaceState(null, "", location.pathname);
+          if (!j?.ok) { setErr(j?.message || "Login failed."); return; }
+        } catch { setErr("Login request failed. Check your connection."); return; }
+      }
+      // give the Telegram script a moment (only exists inside Telegram, harmless elsewhere)
+      for (let i = 0; i < 15 && !window.Telegram?.WebApp; i++) await new Promise((r) => setTimeout(r, 100));
+      window.Telegram?.WebApp?.ready?.();
+      window.Telegram?.WebApp?.expand?.();
+      await load();
+    })();
+  }, [load]);
+
+  const logout = async () => {
+    await fetch("/api/admin/logout", { method: "POST" });
+    setD(null);
+    setErr("Logged out.");
+  };
 
   return (
     <main className="wrap wide">
@@ -40,7 +63,13 @@ export default function AdminPage() {
       {!d && !err && <div className="status"><span className="spinner" aria-hidden /><span>Loading…</span></div>}
       {d && (
         <>
-          <p className="muted">Role: {d.role}. Actions (ban, balance, broadcast, config) run through the bot: /admin help</p>
+          <p className="muted">
+            Role: {d.role}. Actions (ban, balance, broadcast, config) run through the bot: /admin help.{" "}
+            <a href="#" onClick={(e) => { e.preventDefault(); void logout(); }}>Log out</a>
+          </p>
+          {d.errors?.length > 0 && (
+            <div className="card"><strong>Some sections failed</strong>{d.errors.map((e: string, i: number) => <div className="muted" key={i}>{e}</div>)}</div>
+          )}
           {d.users && (
             <div className="card">
               <h2 style={{ marginTop: 0 }}>Users</h2>

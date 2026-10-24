@@ -82,7 +82,8 @@ async function taskAction(ctx: Context, id: string, action: "pause" | "resume" |
 export function registerPromote(bot: Bot) {
   const open = async (ctx: Context) => {
     await setState(ctx.from!.id, null);
-    await show(ctx, "What do you want to promote?", promoteMenu());
+    const [cfg, u] = await Promise.all([getConfig(), getUser(ctx.from!.id)]);
+    await show(ctx, `What do you want to promote?\n\nBalance: ${fmt(u?.balance ?? 0)} ${cfg.currency}`, promoteMenu());
   };
   bot.hears(L.promote, open);
   bot.callbackQuery("pro:menu", async (ctx) => { await ctx.answerCallbackQuery(); await open(ctx); });

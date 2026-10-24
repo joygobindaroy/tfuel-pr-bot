@@ -5,12 +5,14 @@ import { startBroadcast, validSegment } from "./broadcast";
 import { getConfig, invalidateConfig } from "./config";
 import { getDb } from "./firebase";
 import { createPromo, disablePromo } from "./promo";
+import { createLoginToken } from "./session";
 import { audit, can, getRole, type Role } from "./roles";
 import { closeTicket, openTickets, replyTicket } from "./support";
 import { setTaskStatus } from "./tasks";
 import { credit, countUsers, getUser, levelFor, usersCol, type UserDoc } from "./users";
 
 const HELP: [string, string, string][] = [
+  ["users.view", "login", "/admin login   (one-time link to the web panel, any browser)"],
   ["stats", "stats", "/admin stats"],
   ["users.view", "user", "/admin user <id|@username>"],
   ["users.ban", "ban", "/admin ban <id> [reason]   |   /admin unban <id>"],
@@ -85,6 +87,12 @@ export function registerAdmin(bot: Bot) {
       case "help": {
         const lines = HELP.filter(([perm]) => can(role, perm)).map(([, , usage]) => usage);
         return void (await ctx.reply(`Admin (${role})\n\n${lines.join("\n\n")}`));
+      }
+
+      case "login": {
+        const token = await createLoginToken(adminId);
+        await audit(adminId, "login_link", "web");
+        return void (await ctx.reply(`🔐 Admin panel login (valid 5 minutes, works once):\n${appUrl()}/admin?token=${token}\n\nDon't share this link.`, { link_preview_options: { is_disabled: true } }));
       }
 
       case "stats": {

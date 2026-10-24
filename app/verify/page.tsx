@@ -1,10 +1,9 @@
 "use client";
 
 import Script from "next/script";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 type State =
-  | { kind: "intro" }
   | { kind: "checking" }
   | { kind: "done"; country: string }
   | { kind: "failed"; message: string; retry: boolean };
@@ -19,8 +18,11 @@ async function sha256(text: string) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+const privacy = process.env.NEXT_PUBLIC_PRIVACY_URL || "";
+
 export default function VerifyPage() {
-  const [state, setState] = useState<State>({ kind: "intro" });
+  const [state, setState] = useState<State>({ kind: "checking" });
+  const started = useRef(false);
 
   const run = useCallback(async () => {
     const tg = window.Telegram?.WebApp;
@@ -68,42 +70,34 @@ export default function VerifyPage() {
       <Script
         src="https://telegram.org/js/telegram-web-app.js"
         strategy="afterInteractive"
-        onLoad={() => {
+        onReady={() => {
           window.Telegram?.WebApp?.ready();
           window.Telegram?.WebApp?.expand();
+          if (!started.current) {
+            started.current = true;
+            void run();
+          }
         }}
       />
-
-      {state.kind === "intro" && (
-        <>
-          <h1>Verify your connection</h1>
-          <p>
-            This keeps rewards fair and stops fake accounts. We check three things:
-          </p>
-          <ul className="checks">
-            <li>Your country, from your IP address</li>
-            <li>Whether a VPN or proxy is in use</li>
-            <li>A hashed device signature</li>
-          </ul>
-          <p className="muted">
-            We store your country and hashed values, not your raw IP address.
-          </p>
-          <button onClick={run}>Agree and verify</button>
-        </>
-      )}
 
       {state.kind === "checking" && (
         <div className="status" role="status" aria-live="polite">
           <span className="spinner" aria-hidden />
-          <span>Checking your connection…</span>
+          <span>Verifying…</span>
         </div>
       )}
 
       {state.kind === "done" && (
         <div role="status" aria-live="polite">
           <h1 className="ok">Verified</h1>
-          <p>Detected country: {state.country}. Returning to the chat…</p>
+          <p>Returning to the chat…</p>
         </div>
+      )}
+
+      {state.kind === "checking" && privacy && (
+        <p className="muted" style={{ marginTop: 24 }}>
+          By using this bot you agree to the <a href={privacy}>privacy policy</a>.
+        </p>
       )}
 
       {state.kind === "failed" && (
