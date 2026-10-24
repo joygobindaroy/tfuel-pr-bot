@@ -27,7 +27,7 @@ Optional: UPSTASH_REDIS_REST_URL / TOKEN (rate limiting across instances), BINAN
 - Deposits: Telegram Stars, USDT via Binance Pay. Deposit bonus tiers. No refunds. /paysupport included.
 - Safety: rate limiting, ban, maintenance mode, idempotent payments, ledger of every balance change.
 - Admin (/admin help): roles (super, moderator, finance), audit log, live config, maintenance, segmented broadcast, user search, fraud list, ticket handling, promo codes, balance adjust.
-- Mini App: /app (user dashboard), /admin (admin dashboard). Add them in BotFather as the menu button if you like.
+- Mini App: /app (user dashboard). Admin web panel: /admin (send /admin login to the bot for a one-time link; works in any browser). Panel pages: Dashboard (stats, 14-day chart, risk), Users (search, ban, adjust balance, history), Tasks (pause/resume/cancel), Tickets (reply/close), Promo codes, Broadcast (segments), Settings (maintenance + every live config value), Team & audit (roles).
 
 ## Live config
 `/admin config get [path]` and `/admin config set <path> <json>` edit the Firestore doc `config/main` (applies in about 30s).

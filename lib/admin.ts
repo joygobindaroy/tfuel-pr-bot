@@ -57,7 +57,7 @@ function nest(path: string, value: unknown) {
   return out;
 }
 
-async function kickWorker() {
+export async function kickWorker() {
   const run = () =>
     fetch(`${appUrl()}/api/cron/retention`, {
       method: "POST",
