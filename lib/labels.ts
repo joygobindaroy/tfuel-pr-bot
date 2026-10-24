@@ -1,0 +1,18 @@
+export const L = {
+  earn: "💰 Earnings",
+  promote: "📣 Promote",
+  deposit: "💳 Deposit",
+  daily: "🎁 Daily Bonus",
+  checks: "🧾 Checks",
+  cabinet: "👤 My Cabinet",
+  board: "🏆 Leaderboard",
+  ach: "🏅 Achievements",
+  refs: "🤝 Referrals",
+  promo: "🎟 Promo Code",
+  app: "🌐 Open App",
+  support: "🆘 Support",
+  stats: "📊 Statistics",
+  settings: "⚙️ Settings",
+  help: "ℹ️ Instruction",
+  links: "🔗 Useful Links",
+};
