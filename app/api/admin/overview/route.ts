@@ -1,4 +1,3 @@
-import { FieldPath } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase";
 import { requireAdmin } from "@/lib/http";
 import { can } from "@/lib/roles";
@@ -21,14 +20,16 @@ export async function POST(req: Request) {
   if (can(role, "stats")) {
     await section("stats", async () => {
       const day = new Date().toISOString().slice(0, 10);
-      const [users, total, today, daily] = await Promise.all([
+      // Day documents are named YYYY-MM-DD, so we fetch the last 14 by id. (Ordering by document id descending needs a custom index.)
+      const ids = Array.from({ length: 14 }, (_, i) => new Date(Date.now() - (13 - i) * 86_400_000).toISOString().slice(0, 10));
+      const [users, total, days] = await Promise.all([
         countUsers(),
         db.collection("meta").doc("stats").get(),
-        db.collection("stats_daily").doc(day).get(),
-        db.collection("stats_daily").orderBy(FieldPath.documentId(), "desc").limit(14).get(),
+        db.getAll(...ids.map((id) => db.collection("stats_daily").doc(id))),
       ]);
-      out.users = users; out.totals = total.data() ?? {}; out.today = today.data() ?? {};
-      out.daily = daily.docs.map((d) => ({ day: d.id, ...d.data() })).reverse();
+      out.users = users; out.totals = total.data() ?? {};
+      out.daily = days.map((d, i) => ({ day: ids[i], ...(d.data() ?? {}) }));
+      out.today = out.daily ? (out.daily as { day: string }[]).find((x) => x.day === day) ?? {} : {};
     });
   }
   if (can(role, "fraud")) {

@@ -26,7 +26,7 @@ async function cabinet(ctx: Context) {
   const lv = levelFor(u.xp, cfg.levels);
   const xp = lv.nextXp ? `${u.xp}/${lv.nextXp} XP` : `${u.xp} XP (max level)`;
   const perks = lv.taskBonus || lv.dailyBonus ? `\nPerks: +${lv.taskBonus}% task rewards, +${lv.dailyBonus}% daily bonus` : "";
-  const kb = new InlineKeyboard().text("📜 History", "acc:history").text("⚙️ Settings", "acc:settings");
+  const kb = new InlineKeyboard().text("💳 Deposit", "go:deposit").text("📜 History", "acc:history").row().text("⚙️ Settings", "acc:settings");
   await show(
     ctx,
     `👤 Your Cabinet\n\nID: ${u.id}\nLevel: ${lv.name} (${xp})${perks}\nBalance: ${fmt(u.balance)} ${cfg.currency}\nCountry: ${u.country ?? "—"}\nTasks done: ${u.tasksDone}\nReferrals: ${u.referralCount}`,

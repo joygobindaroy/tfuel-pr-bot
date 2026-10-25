@@ -11,6 +11,7 @@ export default function System() {
   const t = data.tick;
   const age = t ? Date.now() - t.at : Infinity;
 
+  const url = typeof window === "undefined" ? "" : `${window.location.origin}/api/cron/tick`;
   return (
     <>
       <div className="a-card">
@@ -24,7 +25,23 @@ export default function System() {
             <dt>More work waiting</dt><dd>{t.more ? "yes" : "no"}</dd>
             <dt>Results</dt><dd className="mono" style={{ fontSize: 12 }}>{JSON.stringify(t.results)}</dd>
           </dl>
-        ) : <p className="a-muted">Point cron-job.org at <span className="mono">/api/cron/tick</span> every minute with the header <span className="mono">Authorization: Bearer &lt;CRON_SECRET&gt;</span>.</p>}
+        ) : <p className="a-muted">The scheduler has not run yet. Set up the cron job below, or press “Run now” to test.</p>}
+        <div className="a-actions" style={{ marginTop: 12 }}>
+          <button className="a-btn primary" onClick={() => run(() => act("tick_run"), reload)}>Run now</button>
+          <button className="a-btn" onClick={reload}>Refresh</button>
+        </div>
+      </div>
+
+      <div className="a-card">
+        <h2>Cron job setup (cron-job.org)</h2>
+        <dl className="a-kv" style={{ gridTemplateColumns: "150px 1fr" }}>
+          <dt>URL</dt><dd className="mono" style={{ wordBreak: "break-all" }}>{url}</dd>
+          <dt>Schedule</dt><dd>Every 1 minute</dd>
+          <dt>Request method</dt><dd>GET</dd>
+          <dt>Header name</dt><dd className="mono">Authorization</dd>
+          <dt>Header value</dt><dd className="mono">Bearer YOUR_CRON_SECRET</dd>
+        </dl>
+        <p className="a-muted" style={{ marginBottom: 0 }}>YOUR_CRON_SECRET is the <span className="mono">CRON_SECRET</span> value from Vercel, Settings, Environment Variables. It is never shown here.</p>
       </div>
 
       <div className="a-card" style={{ padding: 8 }}>

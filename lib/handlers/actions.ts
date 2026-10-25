@@ -8,8 +8,8 @@ export const actions = new Map<string, Action>();
 
 export function action(bot: Bot, key: string, label: string, fn: Action) {
   actions.set(key, fn);
-  const triggers = [label, ...(LEGACY[key] ? [LEGACY[key]] : [])];
+  const triggers = [label, ...(LEGACY[key] ?? [])];
   bot.hears(triggers, fn);
 }
 
-export const labelSet = () => new Set<string>([...Object.values(L), ...Object.values(LEGACY)]);
+export const labelSet = () => new Set<string>([...Object.values(L), ...Object.values(LEGACY).flat()]);

@@ -41,7 +41,20 @@ function Chats({ selected, setSelected, goCompose }: { selected: number[]; setSe
       )}
       <div className="a-card" style={{ padding: 8 }}>
         <Loading err={err} loading={loading && !data} />
-        {data && (rows.length === 0 ? <p className="a-empty">No chats match. Chats appear here when the bot is made admin in them.</p> : (
+        {data && (rows.length === 0 ? (
+          data.total === 0 ? (
+            <div style={{ padding: 18 }}>
+              <h2>No chats registered yet</h2>
+              <p className="a-muted">Chats appear here when the bot is made admin in them, but only after the webhook was re-registered (Bots page, “Re-register webhook”). Chats that already have tasks can be imported now.</p>
+              <ol className="a-muted" style={{ paddingLeft: 18 }}>
+                <li>Bots page, Re-register webhook (once).</li>
+                <li>Import chats from existing tasks (button below).</li>
+                <li>For any other chat: remove the bot and add it as admin again, or in the bot open More, My chats, Add.</li>
+              </ol>
+              <button className="a-btn primary" onClick={() => run(() => act("chats_backfill"), reload)}>Import chats from existing tasks</button>
+            </div>
+          ) : <p className="a-empty">No chats match this filter.</p>
+        ) : (
           <div className="a-scroll"><table className="a-table">
             <thead><tr>
               <th><input type="checkbox" aria-label="Select all shown" checked={allOn} onChange={() => setSelected(allOn ? selected.filter((x) => !rows.some((r) => r.id === x)) : [...new Set([...selected, ...rows.map((r) => r.id)])])} /></th>

@@ -1,7 +1,8 @@
 import { kickWorker } from "@/lib/admin";
 import { addMirrorBot, apiFor, registerWebhook, removeMirrorBot } from "@/lib/bots";
 import { botUsername } from "@/lib/botInstance";
-import { chatsCol } from "@/lib/chats";
+import { backfillFromTasks, chatsCol } from "@/lib/chats";
+import { runTick } from "@/lib/jobs";
 import { approveCampaign, cancelCampaign, createCampaign, type NewCampaign } from "@/lib/network";
 import { FieldValue } from "firebase-admin/firestore";
 import { getConfig } from "@/lib/config";
@@ -230,6 +231,18 @@ export async function POST(req: Request) {
         await chatsCol().doc(String(b.id)).update(patch);
         await audit(adminId, "chat_flag", String(b.id), patch);
         return done("Saved.");
+      }
+
+      case "chats_backfill": {
+        if (!need("network")) return deny();
+        const r = await backfillFromTasks();
+        await audit(adminId, "chats_backfill", "tasks", r);
+        return done(`Imported ${r.added} chat(s), ${r.skipped} already known, ${r.failed} could not be read (of ${r.total}).`);
+      }
+      case "tick_run": {
+        if (!need("system")) return deny();
+        const r = await runTick(Date.now() + 30_000);
+        return done(`Tick finished in ${r.ms} ms${r.more ? " (more work is waiting)" : ""}.`);
       }
 
       case "bot_add": {

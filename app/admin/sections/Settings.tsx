@@ -26,7 +26,7 @@ function Leaf({ path, value, onSave }: { path: string; value: any; onSave: (p: s
 
   return (
     <div className="a-leaf">
-      <div style={{ textTransform: "capitalize" }}>{human(key)}<small className="mono">{path}</small></div>
+      <div><span style={{ textTransform: "capitalize" }}>{human(key)}</span><small className="mono">{path}</small></div>
       <div>{input}</div>
       <div>{typeof value !== "boolean" && dirty && <button className="a-btn sm primary" onClick={save}>Save</button>}</div>
     </div>
@@ -43,7 +43,7 @@ function Json({ path, value, onSave }: { path: string; value: any; onSave: (p: s
   };
   return (
     <div style={{ padding: "10px 0", borderBottom: "1px dashed var(--line)" }}>
-      <div style={{ textTransform: "capitalize", marginBottom: 6 }}>{human(key)} <small className="mono a-muted">{path}</small></div>
+      <div style={{ marginBottom: 6 }}><span style={{ textTransform: "capitalize" }}>{human(key)}</span> <small className="mono a-muted">{path}</small></div>
       <textarea className="a-in mono" style={{ minHeight: 110, fontSize: 13 }} value={t} onChange={(e) => setT(e.target.value)} spellCheck={false} />
       {bad && <p className="a-neg" style={{ margin: "4px 0" }}>{bad}</p>}
       {t !== original && <div style={{ marginTop: 8 }}><button className="a-btn sm primary" onClick={save}>Save</button></div>}

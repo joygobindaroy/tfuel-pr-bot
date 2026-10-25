@@ -5,6 +5,9 @@ import { act, Chip, Field, Loading, q, useLoad, useRun, when } from "../ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/** A webhook error only matters if it is recent or updates are piling up. */
+const recent = (b: any) => !!b.webhook?.lastErrorAt && Date.now() - b.webhook.lastErrorAt < 30 * 60_000 || (b.webhook?.pending ?? 0) > 5;
+
 export default function Bots() {
   const { data, err, loading, reload } = useLoad<any>(() => q("bots"), []);
   const run = useRun();
@@ -21,14 +24,14 @@ export default function Bots() {
                 <h2 style={{ margin: 0 }}>@{b.username} {b.primary && <Chip kind="info">primary</Chip>}</h2>
                 <span className="mono a-muted">id {b.id}</span>
               </div>
-              {b.error ? <Chip kind="bad">unreachable</Chip> : b.webhook?.lastError ? <Chip kind="warn">webhook error</Chip> : <Chip kind="good">healthy</Chip>}
+              {b.error ? <Chip kind="bad">unreachable</Chip> : recent(b) ? <Chip kind="warn">webhook error</Chip> : !b.webhook?.url ? <Chip kind="bad">no webhook</Chip> : <Chip kind="good">healthy</Chip>}
             </div>
             {b.error && <p className="a-neg">{b.error}</p>}
             {b.webhook && (
               <dl className="a-kv" style={{ marginTop: 12 }}>
                 <dt>Webhook</dt><dd className="mono" style={{ fontSize: 13 }}>{b.webhook.url || "not set"}</dd>
                 <dt>Pending</dt><dd className="mono">{b.webhook.pending}</dd>
-                <dt>Last error</dt><dd>{b.webhook.lastError ? <>{b.webhook.lastError} <span className="a-muted">({when(b.webhook.lastErrorAt)})</span></> : "none"}</dd>
+                <dt>Last error</dt><dd>{b.webhook.lastError ? <>{b.webhook.lastError} <span className="a-muted">({when(b.webhook.lastErrorAt)} UTC{recent(b) ? "" : ", old: Telegram keeps showing it, no action needed"})</span></> : "none"}</dd>
               </dl>
             )}
             <div className="a-actions" style={{ marginTop: 14 }}>
