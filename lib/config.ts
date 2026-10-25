@@ -43,8 +43,9 @@ export const DEFAULT_CONFIG = {
     alertUsdt: 25,
   },
   tasks: {
-    channel: { reward: 30 }, // paid to the user per subscribe
-    group: { reward: 20 },
+    channel: { reward: 30, premiumReward: 55 }, // paid to the user per subscribe (premiumReward = Premium-only audience)
+    group: { reward: 20, premiumReward: 38 },
+    targetingFee: 5, // added per unit when countries are restricted
     commissionPct: 20, // added on top of reward, paid by the promoter
     minActions: 10,
     maxActions: 100000,
@@ -56,6 +57,16 @@ export const DEFAULT_CONFIG = {
     maxActiveTasksPerUser: 20,
   },
   checks: { minAmount: 1, maxClaims: 1000 },
+  network: {
+    minMembers: 100,
+    maxPerDayDefault: 1,
+    releaseAfterHours: 6,
+    deleteAfterHours: 24,
+    maxBonusPerOwnerPerDay: 50000,
+    approvalAbove: 50000, // campaigns costing more need a second super admin
+    sponsoredLabel: "📢 Sponsored",
+  },
+  mandatory: { maxRequired: 3, warnSeconds: 30, cacheMinutes: 10 },
   rateLimit: { windowSec: 10, max: 15 },
   achievements: [
     { id: "first_task", name: "First task", metric: "tasksDone", threshold: 1, reward: 20 },

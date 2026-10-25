@@ -1,3 +1,6 @@
+import { listBots } from "@/lib/bots";
+import { estimate, type BonusRule, type TargetSpec } from "@/lib/network";
+import { chatsCol, withChatDefaults } from "@/lib/chats";
 import { getConfig } from "@/lib/config";
 import { getDb } from "@/lib/firebase";
 import { requireAdmin } from "@/lib/http";
@@ -101,6 +104,55 @@ export async function POST(req: Request) {
         if (!can(role, "audit")) return deny();
         const s = await db.collection("audit").orderBy("at", "desc").limit(60).get();
         return ok({ audit: s.docs.map((d) => d.data()) });
+      }
+
+      case "chats": {
+        if (!can(role, "network")) return deny();
+        const s = await chatsCol().orderBy("memberCount", "desc").limit(400).get();
+        const term = String(body.q || "").trim().toLowerCase();
+        const list = s.docs.map((d) => withChatDefaults(d.data())).filter((c) => !term || c.title.toLowerCase().includes(term) || String(c.id).includes(term) || (c.username || "").toLowerCase().includes(term) || String(c.ownerId).includes(term));
+        return ok({
+          chats: list.slice(0, 250).map((c) => ({
+            id: c.id, type: c.type, title: c.title, username: c.username, memberCount: c.memberCount, ownerId: c.ownerId,
+            status: c.status, botAdmin: c.botAdmin, adsEnabled: c.ads.enabled, maxPerDay: c.ads.maxPerDay, postsToday: c.ads.postsDay === new Date().toISOString().slice(0, 10) ? c.ads.postsToday : 0,
+            earned: c.earned, tags: c.tags, blacklisted: c.blacklisted, canPost: c.rights.canPost, mandatory: c.mandatory.enabled, botId: c.botId,
+          })),
+          total: list.length, minMembers: cfg.network.minMembers, approvalAbove: cfg.network.approvalAbove, currency: cfg.currency,
+        });
+      }
+
+      case "campaigns": {
+        if (!can(role, "network")) return deny();
+        const s = await db.collection("net_campaigns").orderBy("createdAt", "desc").limit(15).get();
+        return ok({
+          campaigns: s.docs.map((d) => { const x = d.data(); return { id: d.id, title: x.title, text: x.text, status: x.status, createdBy: x.createdBy, createdAt: x.createdAt, scheduledAt: x.scheduledAt, totals: x.totals, bonus: x.bonus, queued: (x.queue || []).length }; }),
+        });
+      }
+
+      case "net_estimate": {
+        if (!can(role, "network")) return deny();
+        const r = await estimate(body.target as TargetSpec, body.bonus as BonusRule);
+        return ok({ ...r, needsApproval: r.totalBonus > cfg.network.approvalAbove });
+      }
+
+      case "bots": {
+        if (!can(role, "bots")) return deny();
+        return ok({ bots: await listBots() });
+      }
+
+      case "config_history": {
+        if (!can(role, "config")) return deny();
+        const s = await db.collection("config_history").orderBy("at", "desc").limit(30).get();
+        return ok({ history: s.docs.map((d) => ({ id: d.id, ...d.data() })) });
+      }
+
+      case "system": {
+        if (!can(role, "system")) return deny();
+        const [errors, tick] = await Promise.all([
+          db.collection("errors").orderBy("lastAt", "desc").limit(40).get(),
+          db.collection("meta").doc("tick").get(),
+        ]);
+        return ok({ errors: errors.docs.map((d) => ({ id: d.id, ...d.data() })), tick: tick.data() ?? null });
       }
 
       default:

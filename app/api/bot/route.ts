@@ -1,10 +1,10 @@
-import { webhookCallback } from "grammy";
-import { bot } from "@/lib/bot";
+import { webhookFor } from "@/lib/bot";
+import { primaryToken } from "@/lib/bots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-export const POST = webhookCallback(bot, "std/http", {
-  secretToken: process.env.WEBHOOK_SECRET,
-});
+export async function POST(req: Request) {
+  return webhookFor(primaryToken() || "0:build-placeholder", process.env.WEBHOOK_SECRET)(req);
+}

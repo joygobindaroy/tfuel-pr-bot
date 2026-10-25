@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { bot, notifyAdmins } from "./botInstance";
+import { notifyAdmins } from "./botInstance";
+import { sendToUser } from "./notify";
 import { getDb } from "./firebase";
 import { dayKey, usersCol, withDefaults } from "./users";
 
@@ -35,7 +36,7 @@ export async function replyTicket(id: string, adminId: number, text: string) {
   if (!s.exists) return false;
   const t = s.data() as { userId: number };
   await ref.update({ replies: FieldValue.arrayUnion({ by: adminId, text, at: Date.now() }) });
-  await bot.api.sendMessage(t.userId, `💬 Support reply (#${id}):\n${text}`).catch(() => {});
+  await sendToUser(t.userId, `💬 Support reply (#${id}):\n${text}`);
   return true;
 }
 

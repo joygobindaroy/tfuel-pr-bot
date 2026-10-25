@@ -1,5 +1,6 @@
 import { FieldPath } from "firebase-admin/firestore";
-import { bot, notifyAdmins } from "./botInstance";
+import { notifyAdmins } from "./botInstance";
+import { apiFor } from "./bots";
 import { getConfig } from "./config";
 import { getDb } from "./firebase";
 import { levelFor, usersCol, withDefaults, type UserDoc } from "./users";
@@ -48,13 +49,13 @@ export async function runBroadcast(id: string, deadline: number): Promise<boolea
 
     const targets = snap.docs
       .map((d) => withDefaults(d.data()))
-      .filter((u) => !u.banned && matches(u, b.segment, cfg.levels) && u.notif.news);
+      .filter((u) => !u.banned && !u.blocked && matches(u, b.segment, cfg.levels) && u.notif.news);
     skipped += snap.size - targets.length;
 
     for (let i = 0; i < targets.length; i += 20) {
       const started = Date.now();
       const results = await Promise.all(
-        targets.slice(i, i + 20).map((u) => bot.api.sendMessage(u.id, b.text).then(() => true, () => false))
+        targets.slice(i, i + 20).map(async (u) => { try { await (await apiFor(u.botId)).sendMessage(u.id, b.text); return true; } catch { return false; } })
       );
       sent += results.filter(Boolean).length;
       failed += results.filter((r) => !r).length;

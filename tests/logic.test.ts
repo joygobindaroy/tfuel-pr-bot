@@ -1,0 +1,168 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG } from "../lib/config";
+import { depositQuote, usdtQuote } from "../lib/payments";
+import { levelFor } from "../lib/users";
+import { validSegment } from "../lib/broadcast";
+import { makeCaptcha } from "../lib/captcha";
+import { calcBonus, isEligible } from "../lib/network";
+import { taskPrice } from "../lib/tasks";
+import { rights } from "../lib/picker";
+import { allow, once } from "../lib/ratelimit";
+import { weekKey } from "../lib/leaderboard";
+import type { ChatDoc } from "../lib/chats";
+
+const cfg = DEFAULT_CONFIG;
+
+describe("deposit quotes", () => {
+  it("applies the right Stars bonus tier", () => {
+    expect(depositQuote(50, cfg)).toMatchObject({ base: 5000, bonus: 0, total: 5000 });
+    expect(depositQuote(250, cfg)).toMatchObject({ pct: 5, total: 26250 });
+    expect(depositQuote(1000, cfg)).toMatchObject({ pct: 15, total: 115000 });
+  });
+  it("applies USDT tiers", () => {
+    expect(usdtQuote(10, cfg).total).toBe(10000);
+    expect(usdtQuote(50, cfg)).toMatchObject({ pct: 10, total: 55000 });
+  });
+});
+
+describe("task pricing", () => {
+  it("adds commission on top of the reward", () => {
+    const p = taskPrice("channel", cfg);
+    expect(p.reward).toBe(30);
+    expect(p.commission).toBe(6);
+    expect(p.cost).toBe(36);
+  });
+  it("premium audience pays the premium reward", () => {
+    expect(taskPrice("channel", cfg, { premium: true }).reward).toBe(55);
+  });
+  it("country targeting adds the fee per unit", () => {
+    expect(taskPrice("group", cfg, { targeted: true }).reward).toBe(25);
+  });
+});
+
+describe("levels", () => {
+  it("picks the level and next threshold", () => {
+    expect(levelFor(0, cfg.levels).name).toBe("Rookie");
+    const l = levelFor(2275, cfg.levels);
+    expect(l.name).toBe("Task Master");
+    expect(l.nextXp).toBe(5000);
+    expect(levelFor(99999, cfg.levels).nextXp).toBeNull();
+  });
+});
+
+describe("broadcast segments", () => {
+  it("accepts only known shapes", () => {
+    for (const ok of ["all", "premium", "country:BD", "active:7", "level:task_master"]) expect(validSegment(ok)).toBe(true);
+    for (const bad of ["", "country:BDX", "active:abc", "everyone", "level:"]) expect(validSegment(bad)).toBe(false);
+  });
+});
+
+describe("captcha", () => {
+  it("always includes the right answer among 4 distinct options", () => {
+    for (let i = 0; i < 200; i++) {
+      const c = makeCaptcha();
+      expect(c.options).toHaveLength(4);
+      expect(new Set(c.options).size).toBe(4);
+      expect(c.options).toContain(c.answer);
+    }
+  });
+});
+
+describe("network bonus", () => {
+  it("is zero when the amount is zero, even with a minimum", () => {
+    expect(calcBonus({ mode: "fixed", amount: 0, min: 50, max: 0 }, 5000)).toBe(0);
+  });
+  it("fixed and per-1000 modes respect min and max", () => {
+    expect(calcBonus({ mode: "fixed", amount: 100, min: 0, max: 0 }, 10)).toBe(100);
+    expect(calcBonus({ mode: "per1000", amount: 10, min: 0, max: 0 }, 5000)).toBe(50);
+    expect(calcBonus({ mode: "per1000", amount: 10, min: 20, max: 0 }, 100)).toBe(20);
+    expect(calcBonus({ mode: "per1000", amount: 10, min: 0, max: 30 }, 100000)).toBe(30);
+  });
+});
+
+const chat = (over: Partial<ChatDoc> = {}): ChatDoc => ({
+  id: -100, type: "supergroup", title: "t", username: null, inviteLink: null, memberCount: 500, botId: "1", botAdmin: true,
+  rights: { canPost: true, canDelete: true, canRestrict: true, canInvite: true, canPin: true }, addedBy: 1, ownerId: 1, status: "active",
+  ads: { enabled: true, acceptedAt: 1, acceptedBy: 1, maxPerDay: 1, lastPostAt: 0, postsDay: "", postsToday: 0 },
+  mandatory: { enabled: false, mode: "delete", required: [] }, earned: 0, tags: [], blacklisted: false, promptedAt: null, createdAt: 0, updatedAt: 0, ...over,
+});
+
+describe("network eligibility", () => {
+  const spec = { mode: "all" as const };
+  it("accepts a normal opted-in chat", () => expect(isEligible(chat(), spec, cfg, "2026-10-24")).toBe(true));
+  it("rejects when ads are off, blacklisted, or the bot is not admin", () => {
+    expect(isEligible(chat({ ads: { ...chat().ads, enabled: false } }), spec, cfg)).toBe(false);
+    expect(isEligible(chat({ blacklisted: true }), spec, cfg)).toBe(false);
+    expect(isEligible(chat({ botAdmin: false }), spec, cfg)).toBe(false);
+  });
+  it("enforces the minimum member rule and the daily cap", () => {
+    expect(isEligible(chat({ memberCount: 50 }), spec, cfg)).toBe(false);
+    const posted = chat({ ads: { ...chat().ads, postsDay: "2026-10-24", postsToday: 1 } });
+    expect(isEligible(posted, spec, cfg, "2026-10-24")).toBe(false);
+    expect(isEligible(posted, spec, cfg, "2026-10-25")).toBe(true); // new day
+  });
+  it("channels need the post right", () => {
+    expect(isEligible(chat({ type: "channel", rights: { ...chat().rights, canPost: false } }), spec, cfg)).toBe(false);
+  });
+  it("honours ids, exclude, types and tags", () => {
+    expect(isEligible(chat(), { mode: "ids", ids: [-999] }, cfg)).toBe(false);
+    expect(isEligible(chat(), { mode: "ids", ids: [-100] }, cfg)).toBe(true);
+    expect(isEligible(chat(), { mode: "filter", exclude: [-100] }, cfg)).toBe(false);
+    expect(isEligible(chat(), { mode: "filter", types: ["channel"] }, cfg)).toBe(false);
+    expect(isEligible(chat({ tags: ["vip"] }), { mode: "filter", tags: ["vip"] }, cfg)).toBe(true);
+  });
+});
+
+describe("chat picker rights", () => {
+  it("sets only the requested flags", () => {
+    const r = rights(["can_invite_users", "can_delete_messages"]) as unknown as Record<string, boolean>;
+    expect(r.can_invite_users).toBe(true);
+    expect(r.can_delete_messages).toBe(true);
+    expect(r.can_restrict_members).toBe(false);
+  });
+});
+
+describe("rate limit and dedupe (in-memory)", () => {
+  it("blocks after the max", async () => {
+    const k = "t:" + Math.random();
+    expect(await allow(k, 2, 10)).toBe(true);
+    expect(await allow(k, 2, 10)).toBe(true);
+    expect(await allow(k, 2, 10)).toBe(false);
+  });
+  it("only lets a key through once", async () => {
+    const k = "o:" + Math.random();
+    expect(await once(k)).toBe(true);
+    expect(await once(k)).toBe(false);
+  });
+});
+
+describe("week key", () => {
+  it("is stable inside a week and changes across weeks", () => {
+    const a = weekKey(Date.UTC(2026, 9, 19)), b = weekKey(Date.UTC(2026, 9, 25)), c = weekKey(Date.UTC(2026, 9, 26));
+    expect(a).toBe(b);
+    expect(c).not.toBe(b);
+  });
+});
+
+describe("crypto, sessions and webhook secrets", () => {
+  beforeAll(() => { process.env.BOT_ENC_KEY = "k"; process.env.BOT_TOKEN = "1:x"; process.env.HASH_SALT = "s"; process.env.WEBHOOK_SECRET = "w"; });
+  it("round-trips encrypted text and rejects tampering", async () => {
+    const { encrypt, decrypt } = await import("../lib/crypto");
+    const e = encrypt("123456:secret-token");
+    expect(e).not.toContain("secret");
+    expect(decrypt(e)).toBe("123456:secret-token");
+    expect(() => decrypt(e.slice(0, -4) + "AAAA")).toThrow();
+  });
+  it("signs and verifies admin sessions", async () => {
+    const { makeSession, readSession, COOKIE } = await import("../lib/session");
+    const v = makeSession(42);
+    expect(readSession(`${COOKIE}=${v}`)).toBe(42);
+    expect(readSession(`${COOKIE}=${v.replace("42.", "43.")}`)).toBeNull();
+    expect(readSession(`${COOKIE}=${makeSession(42, -1)}`)).toBeNull();
+  });
+  it("derives a stable per-bot webhook secret", async () => {
+    const { mirrorSecret } = await import("../lib/bots");
+    expect(mirrorSecret("5")).toBe(mirrorSecret("5"));
+    expect(mirrorSecret("5")).not.toBe(mirrorSecret("6"));
+  });
+});

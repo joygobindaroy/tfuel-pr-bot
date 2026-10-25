@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { act, Loading, q, useLoad, useRun } from "../ui";
+import { act, Loading, q, useLoad, useRun, when } from "../ui";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -68,6 +68,29 @@ function Node({ path, value, onSave, root }: { path: string; value: any; onSave:
   return <Leaf path={path} value={value} onSave={onSave} />;
 }
 
+function History({ onDone }: { onDone: () => void }) {
+  const { data, err, loading, reload } = useLoad<any>(() => q("config_history"), []);
+  const run = useRun();
+  const show = (v: unknown) => { const t = JSON.stringify(v); return t && t.length > 40 ? t.slice(0, 40) + "…" : t ?? "—"; };
+  return (
+    <div className="a-card" style={{ padding: 8 }}>
+      <h2 style={{ padding: "10px 10px 0" }}>Change history</h2>
+      <Loading err={err} loading={loading && !data} />
+      {data && (data.history.length === 0 ? <p className="a-empty">No changes recorded yet.</p> : (
+        <div className="a-scroll"><table className="a-table">
+          <thead><tr><th>When (UTC)</th><th>Setting</th><th>Before</th><th>After</th><th>By</th><th /></tr></thead>
+          <tbody>{data.history.map((h: any) => (
+            <tr key={h.id}>
+              <td className="a-muted mono">{when(h.at)}</td><td className="mono">{h.path}</td>
+              <td className="mono a-muted">{h.hadValue ? show(h.before) : "default"}</td><td className="mono">{show(h.after)}</td>
+              <td className="mono">{h.by}</td>
+              <td>{!h.rollbackOf && <button className="a-btn sm" onClick={() => confirm(`Revert ${h.path}?`) && run(() => act("config_rollback", { id: h.id }), () => { reload(); onDone(); })}>Revert</button>}</td>
+            </tr>))}</tbody></table></div>
+      ))}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { data, err, loading, reload } = useLoad<any>(() => q("config"), []);
   const run = useRun();
@@ -89,6 +112,7 @@ export default function Settings() {
         <p className="a-muted" style={{ marginTop: 0 }}>Changes apply to the bot within about 30 seconds. Rewards, prices, fees, bonuses, limits and links all live here.</p>
         <Node path="" value={cfg} onSave={save} root />
       </div>
+      <History onDone={reload} />
     </>
   );
 }

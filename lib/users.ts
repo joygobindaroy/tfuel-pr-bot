@@ -42,6 +42,9 @@ export type UserDoc = {
   ticketsDay: string | null;
   ticketsToday: number;
   lastActiveAt: number;
+  botId: string | null;
+  source: { kind: string; id: string } | null;
+  blocked: boolean;
   createdAt: number;
 };
 
@@ -56,6 +59,7 @@ const DEFAULTS = {
   depositedStars: 0, depositedUsdt: 0, achievements: [] as string[], penalties: 0,
   notif: { tasks: true, news: true, referrals: true }, state: null, captcha: null,
   ticketsDay: null, ticketsToday: 0, lastActiveAt: 0,
+  botId: null, source: null, blocked: false,
 };
 
 /** Fills fields that older documents may be missing. */
@@ -75,7 +79,8 @@ export async function getUser(id: number): Promise<UserDoc | null> {
 
 export async function ensureUser(
   from: { id: number; username?: string; first_name?: string; language_code?: string; is_premium?: boolean },
-  refId?: number
+  refId?: number,
+  meta: { botId?: string; source?: { kind: string; id: string } } = {}
 ): Promise<UserDoc> {
   const ref = usersCol().doc(String(from.id));
   const snap = await ref.get();
@@ -85,6 +90,9 @@ export async function ensureUser(
     const uname = from.username ?? null;
     if (uname !== u.username) { patch.username = uname; patch.usernameLower = uname ? uname.toLowerCase() : null; }
     if (Date.now() - u.lastActiveAt > 6 * 3600_000) patch.lastActiveAt = Date.now();
+    if (!!from.is_premium !== u.isPremium) patch.isPremium = !!from.is_premium;
+    if (!u.botId && meta.botId) patch.botId = meta.botId;
+    if (u.blocked) patch.blocked = false;
     if (Object.keys(patch).length) { await ref.update(patch); Object.assign(u, patch); }
     return u;
   }
@@ -106,6 +114,7 @@ export async function ensureUser(
     country: null, countryTrusted: false, timezone: null, ipHash: null, deviceHash: null,
     risk: null, referrerId, referralCount: 0, dailyStreak: 0, lastDailyDay: null,
     lastActiveAt: Date.now(), createdAt: Date.now(),
+    botId: meta.botId ?? null, source: meta.source ?? null,
   };
   try {
     await ref.create(doc);

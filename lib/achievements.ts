@@ -1,5 +1,5 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { bot } from "./botInstance";
+import { sendToUser } from "./notify";
 import { getConfig } from "./config";
 import { getDb } from "./firebase";
 import { ledger, round, usersCol, withDefaults } from "./users";
@@ -35,7 +35,7 @@ export async function notifyAchievements(userId: number) {
     });
     if (out?.notify) {
       const lines = out.newly.map((a) => `🏅 ${a.name}: +${a.reward} ${cfg.currency}`).join("\n");
-      await bot.api.sendMessage(userId, `Achievement unlocked!\n${lines}`).catch(() => {});
+      await sendToUser(userId, `Achievement unlocked!\n${lines}`);
     }
   } catch (e) {
     console.error("achievements failed", e);

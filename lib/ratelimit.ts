@@ -28,3 +28,25 @@ export async function allow(key: string, max: number, windowSec: number): Promis
   e.n += 1;
   return e.n <= max;
 }
+
+const seen = new Map<string, number>();
+
+/** True the first time a key is seen within ttlSec (used to drop duplicate webhook deliveries). */
+export async function once(key: string, ttlSec = 3600): Promise<boolean> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    try {
+      const res = await fetch(`${url}/set/${encodeURIComponent(key)}/1/EX/${ttlSec}/NX`, {
+        headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1500),
+      });
+      const j = (await res.json()) as { result: string | null };
+      return j.result === "OK";
+    } catch { return true; }
+  }
+  const now = Date.now();
+  if (seen.has(key) && (seen.get(key) as number) > now) return false;
+  seen.set(key, now + ttlSec * 1000);
+  if (seen.size > 5000) for (const [k, v] of seen) if (v < now) seen.delete(k);
+  return true;
+}

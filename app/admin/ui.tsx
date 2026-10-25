@@ -94,6 +94,9 @@ const ICONS: Record<string, string> = {
   broadcast: "M4 10v4h3l5 4V6L7 10zM16 9a4 4 0 0 1 0 6M18.6 6.4a8 8 0 0 1 0 11.2",
   settings: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M5 5l2.1 2.1M16.9 16.9L19 19M19 5l-2.1 2.1M7.1 16.9L5 19",
   team: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z",
+  network: "M7.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM21.5 5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM21.5 19a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM7.2 10.8l9.6-4.6M7.2 13.2l9.6 4.6",
+  bots: "M7 8h10a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3zM12 4v4M9 13.5h.01M15 13.5h.01",
+  system: "M3 12h4l3-8 4 16 3-8h4",
 };
 export const Icon = ({ name }: { name: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICONS[name]} /></svg>
@@ -104,7 +107,7 @@ export const Chip = ({ kind = "", children }: { kind?: "good" | "bad" | "warn" |
 );
 
 export const statusKind = (s: string) =>
-  ({ active: "good", paused: "warn", done: "info", cancelled: "", open: "warn", running: "info" } as Record<string, any>)[s] ?? "";
+  ({ active: "good", paused: "warn", done: "info", cancelled: "", open: "warn", running: "info", pending_approval: "warn", scheduled: "info", released: "good", forfeited: "bad" } as Record<string, any>)[s] ?? "";
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="a-field"><span>{label}</span>{children}</label>;

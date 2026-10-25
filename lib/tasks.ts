@@ -1,5 +1,7 @@
 import { FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
-import { bot, notifyAdmins } from "./botInstance";
+import { notifyAdmins } from "./botInstance";
+import { apiFor } from "./bots";
+import { sendToUser } from "./notify";
 import { getConfig, type AppConfig } from "./config";
 import { getDb } from "./firebase";
 import { lbDoc } from "./leaderboard";
@@ -35,14 +37,17 @@ export type TaskDoc = {
   leaves: number;
   createdAt: number;
   pauseReason?: string;
+  botId?: string;
+  premiumOnly?: boolean;
 };
 
 export const tasksCol = () => getDb().collection("tasks");
 const compCol = () => getDb().collection("completions");
 const DAY = 86_400_000;
 
-export function taskPrice(type: TaskType, cfg: AppConfig) {
-  const reward = cfg.tasks[type].reward;
+export function taskPrice(type: TaskType, cfg: AppConfig, opts: { premium?: boolean; targeted?: boolean } = {}) {
+  const base = opts.premium ? cfg.tasks[type].premiumReward : cfg.tasks[type].reward;
+  const reward = round(base + (opts.targeted ? cfg.tasks.targetingFee : 0));
   const commission = round((reward * cfg.tasks.commissionPct) / 100);
   return { reward, commission, cost: round(reward + commission) };
 }
@@ -56,9 +61,9 @@ export async function getTask(id: string) {
 
 export type Mem = { status: "member" | "left" | "error"; fatal: boolean };
 
-export async function membership(chatId: number, userId: number): Promise<Mem> {
+export async function membership(chatId: number, userId: number, botId?: string | null): Promise<Mem> {
   try {
-    const m = await bot.api.getChatMember(chatId, userId);
+    const m = await (await apiFor(botId)).getChatMember(chatId, userId);
     if (["creator", "administrator", "member"].includes(m.status)) return { status: "member", fatal: false };
     if (m.status === "restricted" && (m as { is_member?: boolean }).is_member) return { status: "member", fatal: false };
     return { status: "left", fatal: false };
@@ -77,9 +82,7 @@ export async function pauseTaskFatal(taskId: string) {
   const t = s.data() as TaskDoc;
   if (t.status !== "active") return;
   await ref.update({ status: "paused", pauseReason: "bot_lost_access" });
-  await bot.api
-    .sendMessage(t.ownerId, `⏸ Your task "${t.title}" was paused: the bot can no longer access ${t.link}. Add the bot as admin again, then resume it.`)
-    .catch(() => {});
+  await sendToUser(t.ownerId, `⏸ Your task "${t.title}" was paused: the bot can no longer access ${t.link}. Add the bot as admin again, then resume it.`);
 }
 
 /* ---------------- create / manage ---------------- */
@@ -87,11 +90,12 @@ export async function pauseTaskFatal(taskId: string) {
 export type NewTask = {
   ownerId: number; type: TaskType; chatId: number; username: string; title: string;
   count: number; countries: string[]; dailyBudget: number; startAt: number;
+  botId?: string; premiumOnly?: boolean; link?: string;
 };
 
 export async function createTask(p: NewTask) {
   const cfg = await getConfig();
-  const price = taskPrice(p.type, cfg);
+  const price = taskPrice(p.type, cfg, { premium: !!p.premiumOnly, targeted: p.countries.length > 0 });
   if (p.count < cfg.tasks.minActions || p.count > cfg.tasks.maxActions) throw new Error("bad_count");
   const active = await tasksCol().where("ownerId", "==", p.ownerId).where("status", "==", "active").count().get();
   if (active.data().count >= cfg.tasks.maxActiveTasksPerUser) throw new Error("too_many_tasks");
@@ -106,10 +110,11 @@ export async function createTask(p: NewTask) {
     t.update(uref, { balance });
     const doc: TaskDoc = {
       id: ref.id, ownerId: p.ownerId, type: p.type, chatId: p.chatId, username: p.username,
-      title: p.title, link: `https://t.me/${p.username.replace(/^@/, "")}`, ...price,
+      title: p.title, link: p.link || `https://t.me/${p.username.replace(/^@/, "")}`, ...price,
       total: p.count, remaining: p.count, completed: 0, reserved: total, spent: 0, status: "active",
       startAt: p.startAt, dailyBudget: p.dailyBudget, dailySpent: 0, dailyDay: "", countries: p.countries,
       reports: 0, leaves: 0, createdAt: Date.now(),
+      botId: p.botId ?? "", premiumOnly: !!p.premiumOnly,
     };
     t.set(ref, doc);
     t.set(ledger(p.ownerId).doc(), {
@@ -204,6 +209,7 @@ export async function findTasks(user: ReturnType<typeof withDefaults>, type: Tas
     .filter(
       (t) =>
         t.ownerId !== user.id && t.remaining > 0 && t.startAt <= now && t.reserved >= t.cost &&
+        (!t.premiumOnly || user.isPremium) &&
         (t.countries.length === 0 || (user.countryTrusted && t.countries.includes(user.country || ""))) &&
         (t.dailyBudget === 0 || t.dailyDay !== today || t.dailySpent + t.cost <= t.dailyBudget)
     )
@@ -262,7 +268,7 @@ export async function completeTask(userId: number, taskId: string): Promise<Comp
       tasksDone: FieldValue.increment(1), tasksSinceCaptcha: FieldValue.increment(1),
     });
     t.set(cref, {
-      taskId, userId, ownerId: task.ownerId, chatId: task.chatId, title: task.title, reward: task.reward,
+      taskId, userId, ownerId: task.ownerId, chatId: task.chatId, botId: task.botId ?? "", title: task.title, reward: task.reward,
       cost: task.cost, commission: task.commission, payout, joinedAt: now, status: "active", nextCheckAt: now + DAY,
     });
     t.set(ledger(userId).doc(), {
@@ -277,7 +283,7 @@ export async function completeTask(userId: number, taskId: string): Promise<Comp
     if (res.finished) {
       const owner = await usersCol().doc(String(res.ownerId)).get();
       if (owner.exists && withDefaults(owner.data()).notif.tasks) {
-        await bot.api.sendMessage(res.ownerId, `✅ Your task "${res.title}" is complete.`).catch(() => {});
+        await sendToUser(res.ownerId, `✅ Your task "${res.title}" is complete.`);
       }
     }
   }
@@ -299,7 +305,7 @@ export async function reportTask(userId: number, taskId: string) {
     return { pause, task, reports };
   });
   if (out?.pause) {
-    await bot.api.sendMessage(out.task.ownerId, `⏸ Your task "${out.task.title}" was paused after ${out.reports} reports. Contact support.`).catch(() => {});
+    await sendToUser(out.task.ownerId, `⏸ Your task "${out.task.title}" was paused after ${out.reports} reports. Contact support.`);
     await notifyAdmins(`⚠️ Task ${taskId} auto-paused after ${out.reports} reports (${out.task.link}).`);
   }
   return out;
@@ -344,18 +350,16 @@ async function applyLeave(compId: string) {
   });
   if (!out) return;
   void incStats({ revenue: out.penalty - out.cost, penalties: 1, leaves: 1 });
-  await bot.api
-    .sendMessage(
-      out.userId,
-      `⚠️ You left "${out.title}" before ${cfg.tasks.retentionDays} days. Penalty: -${out.penalty} ${cfg.currency}. Stay subscribed to keep your rewards.`
-    )
-    .catch(() => {});
+  await sendToUser(
+    out.userId,
+    `⚠️ You left "${out.title}" before ${cfg.tasks.retentionDays} days. Penalty: -${out.penalty} ${cfg.currency}. Stay subscribed to keep your rewards.`
+  );
 }
 
 async function handleCompletion(d: QueryDocumentSnapshot, retentionMs: number) {
-  const c = d.data() as { chatId: number; userId: number; taskId: string; joinedAt: number };
+  const c = d.data() as { chatId: number; userId: number; taskId: string; joinedAt: number; botId?: string };
   try {
-    const m = await membership(c.chatId, c.userId);
+    const m = await membership(c.chatId, c.userId, c.botId);
     if (m.status === "error") {
       if (m.fatal) await pauseTaskFatal(c.taskId);
       await d.ref.update({ nextCheckAt: Date.now() + 6 * 3600_000 });

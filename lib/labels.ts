@@ -11,6 +11,7 @@ export const L = {
   promo: "🎟 Promo Code",
   app: "🌐 Open App",
   support: "🆘 Support",
+  chats: "📡 My Chats",
   stats: "📊 Statistics",
   settings: "⚙️ Settings",
   help: "ℹ️ Instruction",

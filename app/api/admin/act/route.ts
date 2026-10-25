@@ -1,4 +1,10 @@
 import { kickWorker } from "@/lib/admin";
+import { addMirrorBot, apiFor, registerWebhook, removeMirrorBot } from "@/lib/bots";
+import { botUsername } from "@/lib/botInstance";
+import { chatsCol } from "@/lib/chats";
+import { approveCampaign, cancelCampaign, createCampaign, type NewCampaign } from "@/lib/network";
+import { FieldValue } from "firebase-admin/firestore";
+import { getConfig } from "@/lib/config";
 import { startBroadcast, validSegment } from "@/lib/broadcast";
 import { invalidateConfig } from "@/lib/config";
 import { getDb } from "@/lib/firebase";
@@ -135,7 +141,10 @@ export async function POST(req: Request) {
         if (!need("config")) return deny();
         const path = String(b.path || "");
         if (!/^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$/.test(path)) return bad("Bad config path.");
+        const stored = (await db.collection("config").doc("main").get()).data() ?? {};
+        const before = path.split(".").reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), stored);
         await db.collection("config").doc("main").set(nest(path, b.value), { merge: true });
+        await db.collection("config_history").add({ path, before: before === undefined ? null : before, hadValue: before !== undefined, after: b.value, by: adminId, at: Date.now() });
         invalidateConfig();
         await audit(adminId, "config_set", path, { value: b.value });
         return done(`Saved ${path}. Live within seconds.`);
@@ -156,6 +165,98 @@ export async function POST(req: Request) {
         await db.collection("admins").doc(String(id)).delete();
         await audit(adminId, "role_remove", String(id));
         return done("Removed.");
+      }
+
+      case "config_rollback": {
+        if (!need("config")) return deny();
+        const h = await db.collection("config_history").doc(String(b.id)).get();
+        if (!h.exists) return bad("History entry not found.");
+        const e = h.data() as { path: string; before: unknown; hadValue: boolean; after: unknown };
+        if (e.hadValue) await db.collection("config").doc("main").set(nest(e.path, e.before), { merge: true });
+        else await db.collection("config").doc("main").update({ [e.path]: FieldValue.delete() });
+        await db.collection("config_history").add({ path: e.path, before: e.after, hadValue: true, after: e.hadValue ? e.before : null, by: adminId, at: Date.now(), rollbackOf: h.id });
+        invalidateConfig();
+        await audit(adminId, "config_rollback", e.path);
+        return done(`Rolled back ${e.path}.`);
+      }
+
+      case "net_create": {
+        if (!need("network")) return deny();
+        const c = b.campaign as NewCampaign;
+        if (!c) return bad("Missing campaign.");
+        try {
+          const r = await createCampaign(adminId, c);
+          await audit(adminId, "net_create", r.id, { status: r.status, count: r.count, totalBonus: r.totalBonus });
+          if (r.status === "running") await kickWorker();
+          const msg = r.status === "pending_approval" ? `Created. It costs ${r.totalBonus}, so another super admin must approve it before it sends.`
+            : r.status === "scheduled" ? "Scheduled." : `Started: ${r.count} chats, promised bonus ${r.totalBonus}.`;
+          return done(msg);
+        } catch (e) { return bad((e as Error).message); }
+      }
+      case "net_approve": {
+        if (!need("network")) return deny();
+        try { await approveCampaign(String(b.id), adminId); } catch (e) { return bad((e as Error).message); }
+        await audit(adminId, "net_approve", String(b.id));
+        await kickWorker();
+        return done("Approved. Sending has started.");
+      }
+      case "net_cancel": {
+        if (!need("network")) return deny();
+        await cancelCampaign(String(b.id));
+        await audit(adminId, "net_cancel", String(b.id));
+        return done("Campaign cancelled.");
+      }
+      case "net_test": {
+        if (!need("network")) return deny();
+        const c = b.campaign as NewCampaign;
+        const cfg = await getConfig();
+        const api = await apiFor();
+        const user = await botUsername();
+        const markup = { inline_keyboard: c.buttons.map((x) => [{ text: x.text, url: x.url === "{BOT}" ? `https://t.me/${user}` : x.url }]) };
+        const text = `${cfg.network.sponsoredLabel}\n\n${c.text}`;
+        try {
+          if (c.photoUrl) await api.sendPhoto(adminId, c.photoUrl, { caption: text.slice(0, 1024), reply_markup: markup });
+          else await api.sendMessage(adminId, text, { reply_markup: markup, link_preview_options: { is_disabled: true } });
+        } catch (e) { return bad(`Test failed: ${(e as Error).message}. Start the bot in a private chat first.`); }
+        return done("Test message sent to your Telegram.");
+      }
+      case "chat_flag": {
+        if (!need("network")) return deny();
+        const patch: Record<string, unknown> = {};
+        if (typeof b.blacklisted === "boolean") patch.blacklisted = b.blacklisted;
+        if (Array.isArray(b.tags)) patch.tags = b.tags.map((x: unknown) => String(x).slice(0, 20)).slice(0, 10);
+        if (typeof b.adsEnabled === "boolean") patch["ads.enabled"] = b.adsEnabled;
+        if (!Object.keys(patch).length) return bad("Nothing to change.");
+        await chatsCol().doc(String(b.id)).update(patch);
+        await audit(adminId, "chat_flag", String(b.id), patch);
+        return done("Saved.");
+      }
+
+      case "bot_add": {
+        if (!need("bots")) return deny();
+        try {
+          const r = await addMirrorBot(String(b.token || "").trim(), adminId);
+          await audit(adminId, "bot_add", r.id, { username: r.username });
+          return done(`Added @${r.username} and registered its webhook.`);
+        } catch (e) { return bad((e as Error).message); }
+      }
+      case "bot_remove": {
+        if (!need("bots")) return deny();
+        try { await removeMirrorBot(String(b.id)); } catch (e) { return bad((e as Error).message); }
+        await audit(adminId, "bot_remove", String(b.id));
+        return done("Bot removed.");
+      }
+      case "bot_webhook": {
+        if (!need("bots")) return deny();
+        try { await registerWebhook(String(b.id)); } catch (e) { return bad((e as Error).message); }
+        await audit(adminId, "bot_webhook", String(b.id));
+        return done("Webhook registered.");
+      }
+      case "error_clear": {
+        if (!need("system")) return deny();
+        if (b.id) await db.collection("errors").doc(String(b.id)).delete();
+        else { const s = await db.collection("errors").limit(200).get(); await Promise.all(s.docs.map((d) => d.ref.delete())); }
+        return done("Cleared.");
       }
 
       default:

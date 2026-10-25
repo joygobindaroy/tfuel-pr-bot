@@ -59,7 +59,7 @@ function nest(path: string, value: unknown) {
 
 export async function kickWorker() {
   const run = () =>
-    fetch(`${appUrl()}/api/cron/retention`, {
+    fetch(`${appUrl()}/api/cron/tick`, {
       method: "POST",
       headers: { "x-job-secret": process.env.CRON_SECRET || "" },
       signal: AbortSignal.timeout(2500),

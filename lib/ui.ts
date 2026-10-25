@@ -9,9 +9,10 @@ export const mainMenu = new Keyboard()
   .text(L.checks).text(L.cabinet).row()
   .text(L.board).text(L.ach).row()
   .text(L.refs).text(L.promo).row()
-  .text(L.app).text(L.support).row()
-  .text(L.stats).text(L.settings).row()
-  .text(L.help).text(L.links)
+  .text(L.chats).text(L.app).row()
+  .text(L.support).text(L.stats).row()
+  .text(L.settings).text(L.help).row()
+  .text(L.links)
   .resized()
   .persistent();
 

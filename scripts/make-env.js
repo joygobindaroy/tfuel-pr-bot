@@ -90,6 +90,7 @@ function readExisting() {
   const WEBHOOK_SECRET = old.WEBHOOK_SECRET || crypto.randomBytes(32).toString("hex");
   const HASH_SALT = old.HASH_SALT || crypto.randomBytes(32).toString("hex");
   const CRON_SECRET = old.CRON_SECRET || crypto.randomBytes(32).toString("hex");
+  const BOT_ENC_KEY = old.BOT_ENC_KEY || crypto.randomBytes(32).toString("hex");
   const privateKey = key.private_key.replace(/\r?\n/g, "\\n");
 
   const lines = [
@@ -104,6 +105,7 @@ function readExisting() {
     `IPQS_API_KEY=${IPQS_API_KEY}`,
     `HASH_SALT=${HASH_SALT}`,
     `CRON_SECRET=${CRON_SECRET}`,
+    `BOT_ENC_KEY=${BOT_ENC_KEY}`,
     `ADMIN_ALERT_CHAT_ID=${ADMIN_ALERT_CHAT_ID}`,
     `UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}`,
     `UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}`,

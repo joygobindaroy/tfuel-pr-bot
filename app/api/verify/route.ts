@@ -1,11 +1,13 @@
-import { bot, mainMenu } from "@/lib/bot";
+import { mainMenu } from "@/lib/ui";
+import { sendToUser } from "@/lib/notify";
+import { netStart } from "@/lib/network";
 import { notifyAchievements } from "@/lib/achievements";
 import { allow } from "@/lib/ratelimit";
 import { incStats } from "@/lib/stats";
 import { getConfig } from "@/lib/config";
 import { getDb } from "@/lib/firebase";
 import { assess, checkIp, saltHash } from "@/lib/risk";
-import { validateInitData } from "@/lib/telegram-auth";
+import { validateAny } from "@/lib/telegram-auth";
 import { completeVerification, getUser } from "@/lib/users";
 
 export const runtime = "nodejs";
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
     return reply({ ok: false, reason: "rate", message: "Too many attempts. Wait a minute and try again." }, 429);
   }
   const body = await req.json().catch(() => null);
-  const auth = validateInitData(body?.initData, process.env.BOT_TOKEN || "");
+  const auth = await validateAny(body?.initData);
   if (!auth) {
     return reply({ ok: false, reason: "invalid", message: "Session expired. Close this page and press Verify again in the bot." }, 401);
   }
@@ -81,18 +83,12 @@ export async function POST(req: Request) {
   if (!done.already) {
     void incStats({ verified: 1, tfuelMinted: done.bonus + done.referralReward });
     try {
-      await bot.api.sendMessage(
-        id,
-        `✅ Verified. Welcome bonus: +${done.bonus} ${cfg.currency}.`,
-        { reply_markup: mainMenu }
-      );
+      if (user.source?.kind === "net") void netStart(user.source.id, true);
+      await sendToUser(id, `✅ Verified. Welcome bonus: +${done.bonus} ${cfg.currency}.`, { reply_markup: mainMenu });
       if (done.referralReward > 0 && user.referrerId) {
         const referrer = await getUser(user.referrerId);
         if (referrer?.notif.referrals) {
-          await bot.api.sendMessage(
-            user.referrerId,
-            `🤝 A friend you invited just verified. +${done.referralReward} ${cfg.currency}.`
-          );
+          await sendToUser(user.referrerId, `🤝 A friend you invited just verified. +${done.referralReward} ${cfg.currency}.`);
         }
         void notifyAchievements(user.referrerId);
       }

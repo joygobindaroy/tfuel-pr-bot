@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
-import { bot, appUrl } from "./botInstance";
+import { appUrl } from "./botInstance";
+import { sendToUser } from "./notify";
 import { getConfig } from "./config";
 import { getDb } from "./firebase";
 import { usdtQuote } from "./payments";
@@ -102,8 +103,6 @@ export async function settleUsdtOrder(tradeNo: string) {
 
   void incStats({ depositsUsdt: o.usdt, tfuelMinted: o.total });
   const cfg = await getConfig();
-  await bot.api
-    .sendMessage(o.userId, `✅ USDT deposit received\n+${o.total} ${cfg.currency}${o.bonus ? ` (includes +${o.bonus} bonus)` : ""}\nBalance: ${credited} ${cfg.currency}`)
-    .catch(() => {});
+  await sendToUser(o.userId, `✅ USDT deposit received\n+${o.total} ${cfg.currency}${o.bonus ? ` (includes +${o.bonus} bonus)` : ""}\nBalance: ${credited} ${cfg.currency}`);
   return { state: "paid" as const, already: false, usdt: o.usdt, userId: o.userId };
 }

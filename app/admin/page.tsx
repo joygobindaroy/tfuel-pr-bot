@@ -3,7 +3,10 @@
 import "./admin.css";
 import Script from "next/script";
 import { useCallback, useEffect, useState } from "react";
+import Bots from "./sections/Bots";
 import Broadcast from "./sections/Broadcast";
+import Network from "./sections/Network";
+import System from "./sections/System";
 import Dashboard from "./sections/Dashboard";
 import Promos from "./sections/Promos";
 import Settings from "./sections/Settings";
@@ -23,6 +26,9 @@ const NAV: { id: string; label: string; icon: string; perm: string | null; sub: 
   { id: "tickets", label: "Tickets", icon: "tickets", perm: "tickets", sub: "Support requests waiting for a reply" },
   { id: "promos", label: "Promo codes", icon: "promo", perm: "promo", sub: "Create and retire codes" },
   { id: "broadcast", label: "Broadcast", icon: "broadcast", perm: "broadcast", sub: "Message a segment of users" },
+  { id: "network", label: "Network", icon: "network", perm: "network", sub: "Chats where the bot is admin, and sponsored posts" },
+  { id: "bots", label: "Bots", icon: "bots", perm: "bots", sub: "Primary and mirror bots, webhooks" },
+  { id: "system", label: "System", icon: "system", perm: "system", sub: "Scheduler health and error log" },
   { id: "settings", label: "Settings", icon: "settings", perm: "config", sub: "Rewards, prices, fees, limits and maintenance" },
   { id: "team", label: "Team & audit", icon: "team", perm: "audit", sub: "Who can do what, and what was done" },
 ];
@@ -125,6 +131,9 @@ export default function AdminPage() {
           {current.id === "tickets" && <Tickets />}
           {current.id === "promos" && <Promos />}
           {current.id === "broadcast" && <Broadcast />}
+          {current.id === "network" && <Network meId={me.id} />}
+          {current.id === "bots" && <Bots />}
+          {current.id === "system" && <System />}
           {current.id === "settings" && <Settings />}
           {current.id === "team" && <Team role={me.role} />}
         </main>

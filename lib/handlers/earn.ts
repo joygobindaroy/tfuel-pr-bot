@@ -88,7 +88,7 @@ export function registerEarn(bot: Bot) {
       await ctx.answerCallbackQuery();
       return sendCaptcha(ctx, task.type);
     }
-    const m = await membership(task.chatId, ctx.from.id);
+    const m = await membership(task.chatId, ctx.from.id, task.botId);
     if (m.status === "error") {
       if (m.fatal) await pauseTaskFatal(task.id);
       await ctx.answerCallbackQuery({ text: "Can't verify this task right now. Try another.", show_alert: true });

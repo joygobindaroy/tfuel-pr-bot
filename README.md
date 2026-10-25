@@ -34,6 +34,17 @@ Optional: UPSTASH_REDIS_REST_URL / TOKEN (rate limiting across instances), BINAN
 Examples: `/admin config set deposit.rate 120`, `/admin config set tasks.channel.reward 40`, `/admin config set vpnMode "limit"`.
 All defaults are in `lib/config.ts`.
 
+## Batch 1 additions (mirror bots, chat network, picker, mandatory subscription)
+- **Mirror bots:** admin panel > Bots. Paste a BotFather token; it is checked, encrypted (needs `BOT_ENC_KEY`), and its webhook is registered for you. All bots share users, balances and tasks.
+- **Webhook (primary):** use the Bots page > "Re-register webhook" after every deploy that changes allowed updates. It sets `allowed_updates` (messages, callbacks, payments, `my_chat_member`).
+- **Scheduler:** point cron-job.org at `GET https://<APP_URL>/api/cron/tick` every minute with header `Authorization: Bearer <CRON_SECRET>`. It runs retention checks, network posts and bonuses, deletions, broadcasts, chat refreshes. The System page shows whether it is alive.
+- **Chat registry:** whenever a bot is made admin in a group/channel it is recorded (members, rights, owner). Owners get a DM to opt in to sponsored posts, and manage everything in the bot under 📡 My Chats.
+- **Promote** now uses Telegram's own chat picker (only chats you admin; offers to add the bot as admin), then an audience step (all users / Premium only).
+- **Mandatory subscription:** group owners choose required channels/groups in 📡 My Chats. The bot must be admin with the right to delete messages (and restrict members for mute mode).
+- **Network (admin panel):** pick chats or filters, write a post, set the owner bonus (0 = silent, no notification), estimate cost, send a test to yourself, schedule or send. Campaigns over `network.approvalAbove` need a second super admin. Bonuses are paid only if the post is still there after `releaseAfterHours`.
+- **Config history:** every Settings change is recorded and can be reverted.
+- **Tests:** `npm test` (pure logic) and a GitHub Actions workflow that runs typecheck, tests and build on every push.
+
 ## Things to know
 - Cron: `vercel.json` runs the retention worker once a day. It chains itself while work remains. For busy bots use a Vercel plan with more frequent crons, or ping `/api/cron/retention` (header `x-job-secret: <CRON_SECRET>`) from an external scheduler.
 - Retention checks cost one getChatMember per completed task per day for 7 days. Watch Telegram limits as you grow.
@@ -42,4 +53,5 @@ All defaults are in `lib/config.ts`.
 - Country is only trusted when no VPN is detected. Country-targeted tasks only go to users with a trusted country.
 - Stars you receive sit in the bot's Telegram balance; Telegram's withdrawal rules apply.
 - Firestore queries used need no composite indexes. If Firestore ever shows an index link in the logs, open it once to create it.
-- Multi-bot (mirror bots) is not built in yet.
+- Unverified in the sandbox: real Telegram behaviour (chat picker, admin rights prompt, message-exists probe, 429 handling), Firestore at scale, Binance. Test with one small chat first.
+- Every group message reaches the webhook once the bot is admin there. Watch Vercel and Firestore usage as groups grow.

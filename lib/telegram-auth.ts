@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { allTokens } from "./bots";
 
 export type TgUser = {
   id: number;
@@ -42,4 +43,13 @@ export function validateInitData(
   } catch {
     return null;
   }
+}
+
+/** Mini App initData is signed by whichever bot opened it, so try the primary and every mirror bot. */
+export async function validateAny(initData: unknown, maxAgeSec = 3600) {
+  for (const t of await allTokens()) {
+    const r = validateInitData(initData, t.token, maxAgeSec);
+    if (r) return { ...r, botId: t.id };
+  }
+  return null;
 }

@@ -1,19 +1,21 @@
-import { Bot } from "grammy";
+import { apiFor, appUrlEnv } from "./bots";
 
-// Placeholder keeps `next build` working when env vars are absent.
-export const bot = new Bot(process.env.BOT_TOKEN || "0:build-placeholder");
+export const appUrl = appUrlEnv;
 
+/** Alerts go out through the primary bot to ADMIN_ALERT_CHAT_ID (or every id in ADMIN_IDS). */
 export async function notifyAdmins(text: string) {
   const targets = process.env.ADMIN_ALERT_CHAT_ID
     ? [process.env.ADMIN_ALERT_CHAT_ID]
     : (process.env.ADMIN_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  await Promise.all(targets.map((id) => bot.api.sendMessage(id, text).catch(() => {})));
+  const api = await apiFor();
+  await Promise.all(targets.map((id) => api.sendMessage(id, text).catch(() => {})));
 }
 
-export const appUrl = () => (process.env.APP_URL || "").replace(/\/$/, "");
-
-let cachedUsername: string | null = null;
-export async function botUsername() {
-  if (!cachedUsername) cachedUsername = (await bot.api.getMe()).username;
-  return cachedUsername;
+const names = new Map<string, string>();
+export async function botUsername(botId?: string | null) {
+  const api = await apiFor(botId);
+  const key = String(botId || "primary");
+  let n = names.get(key);
+  if (!n) { n = (await api.getMe()).username; names.set(key, n); }
+  return n;
 }

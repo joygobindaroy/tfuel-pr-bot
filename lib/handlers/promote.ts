@@ -1,21 +1,22 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
-import { bot as botInstance } from "../botInstance";
+import { registerChat } from "../chats";
 import { getConfig } from "../config";
 import { getDb } from "../firebase";
 import { L } from "../labels";
+import { NOT_ADMIN_HELP, pickerKeyboard } from "../picker";
 import { setState } from "../state";
 import {
   addActions, createTask, getTask, myTasks, setTaskStatus, taskPrice,
   type NewTask, type TaskDoc, type TaskType,
 } from "../tasks";
-import { fmt, show } from "../ui";
+import { fmt, mainMenu, show } from "../ui";
 import { getUser, type UserState } from "../users";
 
 const templates = () => getDb().collection("templates");
 
 type Draft = {
-  type: TaskType; chatId: number; username: string; title: string;
-  count: number; countries: string[]; dailyBudget: number; startAt: number;
+  type: TaskType; chatId: number; username: string; title: string; link: string;
+  premiumOnly: boolean; count: number; countries: string[]; dailyBudget: number; startAt: number;
 };
 
 const errText = (e: unknown) => {
@@ -28,18 +29,13 @@ const errText = (e: unknown) => {
 
 function promoteMenu() {
   return new InlineKeyboard()
-    .text("➕ Channel task", "pro:new:channel").text("➕ Group task", "pro:new:group").row()
+    .text("📢 Channel", "pro:new:channel").text("👥 Group", "pro:new:group").row()
     .text("📋 My tasks", "pro:list").text("📑 Templates", "pro:tpl");
-}
-
-function parseUsername(text: string) {
-  const m = text.trim().match(/^(?:https?:\/\/t\.me\/|@)?([A-Za-z][A-Za-z0-9_]{4,31})\/?$/);
-  return m ? `@${m[1]}` : null;
 }
 
 async function summary(ctx: Context, d: Draft) {
   const cfg = await getConfig();
-  const p = taskPrice(d.type, cfg);
+  const p = taskPrice(d.type, cfg, { premium: d.premiumOnly, targeted: d.countries.length > 0 });
   const total = Math.round(p.cost * d.count * 100) / 100;
   const when = d.startAt > Date.now() ? new Date(d.startAt).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "now";
   const kb = new InlineKeyboard()
@@ -47,14 +43,14 @@ async function summary(ctx: Context, d: Draft) {
     .text("💾 Save as template", "pro:savetpl").text("✖ Cancel", "pro:cancel");
   await show(
     ctx,
-    `Review your task\n\nType: ${d.type}\nTarget: ${d.username}\nAmount: ${fmt(d.count)}\nPrice each: ${fmt(p.cost)} ${cfg.currency} (reward ${fmt(p.reward)} + ${cfg.tasks.commissionPct}% fee)\nTotal: ${fmt(total)} ${cfg.currency}\nCountries: ${d.countries.length ? d.countries.join(", ") : "all"}\nDaily budget: ${d.dailyBudget ? fmt(d.dailyBudget) : "no limit"}\nStarts: ${when}`,
+    `Review your task\n\nType: ${d.type}\nTarget: ${d.title}\nAudience: ${d.premiumOnly ? "Telegram Premium only" : "All users"}\nAmount: ${fmt(d.count)}\nPrice each: ${fmt(p.cost)} ${cfg.currency} (reward ${fmt(p.reward)} + ${cfg.tasks.commissionPct}% fee)\nTotal: ${fmt(total)} ${cfg.currency}\nCountries: ${d.countries.length ? d.countries.join(", ") : "all"}${d.countries.length ? ` (+${cfg.tasks.targetingFee} per unit)` : ""}\nDaily budget: ${d.dailyBudget ? fmt(d.dailyBudget) : "no limit"}\nStarts: ${when}`,
     kb
   );
 }
 
 function taskCard(t: TaskDoc, cur: string) {
   const retained = t.completed ? Math.round((1 - t.leaves / t.completed) * 100) : 100;
-  return `📌 ${t.title}\nStatus: ${t.status}${t.pauseReason ? ` (${t.pauseReason})` : ""}\nDone: ${t.completed}/${t.total}  Left to do: ${t.remaining}\nSpent: ${fmt(t.spent)} ${cur}  In escrow: ${fmt(t.reserved)} ${cur}\nRetention: ${retained}%  (left early: ${t.leaves}, auto-refilled)\nReports: ${t.reports}\nDaily: ${t.dailyBudget ? `${fmt(t.dailySpent)}/${fmt(t.dailyBudget)} today` : "no limit"}\nCountries: ${t.countries.length ? t.countries.join(", ") : "all"}`;
+  return `📌 ${t.title}\nStatus: ${t.status}${t.pauseReason ? ` (${t.pauseReason})` : ""}${t.premiumOnly ? "\nAudience: Premium only" : ""}\nDone: ${t.completed}/${t.total}  Left to do: ${t.remaining}\nSpent: ${fmt(t.spent)} ${cur}  In escrow: ${fmt(t.reserved)} ${cur}\nRetention: ${retained}%  (left early: ${t.leaves}, auto-refilled)\nReports: ${t.reports}\nDaily: ${t.dailyBudget ? `${fmt(t.dailySpent)}/${fmt(t.dailyBudget)} today` : "no limit"}\nCountries: ${t.countries.length ? t.countries.join(", ") : "all"}`;
 }
 
 async function taskView(ctx: Context, id: string) {
@@ -90,13 +86,22 @@ export function registerPromote(bot: Bot) {
 
   bot.callbackQuery(/^pro:new:(channel|group)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
-    const cfg = await getConfig();
     const type = ctx.match[1] as TaskType;
-    await setState(ctx.from.id, "promote:target", { type });
-    const p = taskPrice(type, cfg);
-    await ctx.reply(
-      `Send the public @username (or t.me link) of your ${type}.\n\n1. Add this bot as an admin there first (no special permissions needed).\n2. You must be an admin of it yourself.\n\nPrice: ${fmt(p.cost)} ${cfg.currency} per ${type === "channel" ? "subscriber" : "member"}.`
-    );
+    await setState(ctx.from.id, "promote:pick", { type });
+    await ctx.reply(`Choose a ${type === "channel" ? "channel" : "group"} to promote (the bot must be an admin).`, { reply_markup: pickerKeyboard(type, "promote") });
+  });
+
+  bot.callbackQuery(/^pro:aud:(all|prem)$/, async (ctx) => {
+    const st = (await getUser(ctx.from.id))?.state;
+    if (st?.step !== "promote:audience") return void (await ctx.answerCallbackQuery({ text: "Session expired. Start again.", show_alert: true }));
+    await ctx.answerCallbackQuery();
+    const cfg = await getConfig();
+    const d = st.data as Record<string, unknown>;
+    const premiumOnly = ctx.match[1] === "prem";
+    await setState(ctx.from.id, "promote:count", { ...d, premiumOnly });
+    const p = taskPrice(d.type as TaskType, cfg, { premium: premiumOnly });
+    await show(ctx, `Audience: ${premiumOnly ? "Telegram Premium only" : "All users"}.`);
+    await ctx.reply(`How many ${d.type === "channel" ? "subscribers" : "members"} do you want? (${cfg.tasks.minActions} to ${fmt(cfg.tasks.maxActions)})\nPrice: ${fmt(p.cost)} ${cfg.currency} each.`);
   });
 
   bot.callbackQuery("pro:cancel", async (ctx) => {
@@ -110,7 +115,7 @@ export function registerPromote(bot: Bot) {
     if (st?.step !== "promote:confirm") return ctx.answerCallbackQuery({ text: "Session expired. Start again.", show_alert: true });
     const d = st.data as unknown as Draft;
     try {
-      const r = await createTask({ ownerId: ctx.from.id, ...d } as NewTask);
+      const r = await createTask({ ownerId: ctx.from.id, ...d, botId: ctx.botId } as NewTask);
       await setState(ctx.from.id, null);
       await ctx.answerCallbackQuery({ text: "Task created." });
       await show(ctx, `✅ Task created and ${d.startAt > Date.now() ? "scheduled" : "live"}.\nCharged: ${fmt(r.total)}.`, new InlineKeyboard().text("📋 My tasks", "pro:list"));
@@ -126,7 +131,7 @@ export function registerPromote(bot: Bot) {
     const count = await templates().where("ownerId", "==", ctx.from.id).count().get();
     if (count.data().count >= 10) return ctx.answerCallbackQuery({ text: "Template limit reached (10).", show_alert: true });
     const ref = templates().doc();
-    await ref.set({ id: ref.id, ownerId: ctx.from.id, name: `${d.type}: ${d.username}`, ...d, startAt: 0, createdAt: Date.now() });
+    await ref.set({ id: ref.id, ownerId: ctx.from.id, name: `${d.type}: ${d.title}`.slice(0, 40), ...d, startAt: 0, createdAt: Date.now() });
     await ctx.answerCallbackQuery({ text: "Template saved." });
   });
 
@@ -143,8 +148,11 @@ export function registerPromote(bot: Bot) {
     const s = await templates().doc(ctx.match[1]).get();
     if (!s.exists || s.data()!.ownerId !== ctx.from.id) return ctx.answerCallbackQuery({ text: "Not found.", show_alert: true });
     await ctx.answerCallbackQuery();
-    const d = s.data() as Draft & { name: string };
-    const draft: Draft = { type: d.type, chatId: d.chatId, username: d.username, title: d.title, count: d.count, countries: d.countries, dailyBudget: d.dailyBudget, startAt: 0 };
+    const d = s.data() as Partial<Draft>;
+    const draft: Draft = {
+      type: d.type as TaskType, chatId: d.chatId as number, username: d.username ?? "", title: d.title ?? "", link: d.link ?? "",
+      premiumOnly: !!d.premiumOnly, count: d.count ?? 0, countries: d.countries ?? [], dailyBudget: d.dailyBudget ?? 0, startAt: 0,
+    };
     await setState(ctx.from.id, "promote:confirm", draft);
     await summary(ctx, draft);
   });
@@ -161,7 +169,7 @@ export function registerPromote(bot: Bot) {
     await ctx.answerCallbackQuery();
     const list = await myTasks(ctx.from.id);
     const kb = new InlineKeyboard();
-    list.forEach((t) => kb.text(`${t.status === "active" ? "🟢" : t.status === "paused" ? "⏸" : t.status === "done" ? "✅" : "⚫"} ${t.username} ${t.completed}/${t.total}`, `pro:t:${t.id}`).row());
+    list.forEach((t) => kb.text(`${t.status === "active" ? "🟢" : t.status === "paused" ? "⏸" : t.status === "done" ? "✅" : "⚫"} ${t.title.slice(0, 22)} ${t.completed}/${t.total}`, `pro:t:${t.id}`).row());
     kb.text("⬅️ Back", "pro:menu");
     await show(ctx, list.length ? "Your tasks:" : "You have no tasks yet.", kb);
   });
@@ -176,6 +184,49 @@ export function registerPromote(bot: Bot) {
     await setState(ctx.from.id, "promote:add", { id: ctx.match[1] });
     await ctx.reply("How many more do you want to add? Send a number.");
   });
+
+  bot.hears("I'm not an admin", async (ctx) => {
+    await setState(ctx.from!.id, null);
+    await ctx.reply(NOT_ADMIN_HELP, { reply_markup: mainMenu });
+  });
+}
+
+/** The user picked a chat with Telegram's chat picker. */
+export async function promoteChatShared(ctx: Context, st: UserState) {
+  const uid = ctx.from!.id;
+  const cfg = await getConfig();
+  const type = st.data.type as TaskType;
+  const chatId = ctx.message!.chat_shared!.chat_id;
+  try {
+    const info = await ctx.api.getChat(chatId);
+    const okType = type === "channel" ? info.type === "channel" : info.type === "supergroup" || info.type === "group";
+    if (!okType) return void (await ctx.reply(`That is not a ${type}. Choose again.`, { reply_markup: mainMenu }));
+    const me = await ctx.api.getChatMember(chatId, ctx.me.id);
+    if (me.status !== "administrator") return void (await ctx.reply("I'm not an admin there yet. Add me as an admin, then try again.", { reply_markup: mainMenu }));
+    const you = await ctx.api.getChatMember(chatId, uid);
+    if (you.status !== "creator" && you.status !== "administrator") return void (await ctx.reply("Only an admin of that chat can promote it.", { reply_markup: mainMenu }));
+
+    const doc = await registerChat(ctx.api, ctx.botId, { id: chatId, type: info.type, title: "title" in info ? info.title : undefined, username: "username" in info ? info.username : undefined }, uid);
+    const username = doc?.username ?? "";
+    let link = username ? `https://t.me/${username}` : doc?.inviteLink ?? "";
+    if (!link) {
+      try { link = (await ctx.api.createChatInviteLink(chatId, { name: "TFUEL task" })).invite_link; } catch { /* handled below */ }
+    }
+    if (!link) return void (await ctx.reply("This chat is private and I can't create an invite link. Make it public, or give me the “Invite users” right.", { reply_markup: mainMenu }));
+
+    const title = doc?.title ?? ("title" in info ? info.title : String(chatId));
+    await setState(uid, "promote:audience", { type, chatId, username, title, link });
+    await ctx.reply(`Found: ${title}`, { reply_markup: mainMenu });
+    const all = taskPrice(type, cfg), prem = taskPrice(type, cfg, { premium: true });
+    const kb = new InlineKeyboard().text("1 · All users", "pro:aud:all").text("2 · Telegram Premium only", "pro:aud:prem");
+    await ctx.reply(
+      `Task audience\nCurrent: no restrictions\n\nChoose who can access the task:\n\n1️⃣ All users\nBroad reach. Price: ${fmt(all.cost)} ${cfg.currency}/unit.\n\n2️⃣ Telegram Premium only\nShown only to Premium users, a higher-quality audience. Price: ${fmt(prem.cost)} ${cfg.currency}/unit.\n\nRestricting by country adds +${cfg.tasks.targetingFee} per unit later.`,
+      { reply_markup: kb }
+    );
+  } catch (e) {
+    console.error("promote chat_shared", e);
+    await ctx.reply("I couldn't read that chat. Make sure I'm an admin there and try again.", { reply_markup: mainMenu });
+  }
 }
 
 /** Text answers for the promote wizard. */
@@ -185,33 +236,12 @@ export async function promoteText(ctx: Context, st: UserState) {
   const cfg = await getConfig();
   const d = st.data as Record<string, unknown>;
 
-  if (st.step === "promote:target") {
-    const username = parseUsername(text);
-    if (!username) return void (await ctx.reply("Send a valid public @username or t.me link."));
-    const type = d.type as TaskType;
-    try {
-      const chat = await botInstance.api.getChat(username);
-      const okType = type === "channel" ? chat.type === "channel" : chat.type === "supergroup" || chat.type === "group";
-      if (!okType) return void (await ctx.reply(`That is not a ${type}. Send the right link.`));
-      const me = await botInstance.api.getChatMember(chat.id, ctx.me.id);
-      if (me.status !== "administrator") return void (await ctx.reply("Add this bot as an admin there first, then send the link again."));
-      const you = await botInstance.api.getChatMember(chat.id, uid);
-      if (you.status !== "creator" && you.status !== "administrator") return void (await ctx.reply("Only an admin of that chat can promote it."));
-      const title = "title" in chat && chat.title ? chat.title : username;
-      await setState(uid, "promote:count", { type, chatId: chat.id, username, title });
-      const p = taskPrice(type, cfg);
-      return void (await ctx.reply(`Found: ${title}\n\nHow many ${type === "channel" ? "subscribers" : "members"} do you want? (${cfg.tasks.minActions} to ${fmt(cfg.tasks.maxActions)})\nPrice: ${fmt(p.cost)} each.`));
-    } catch {
-      return void (await ctx.reply("I couldn't find that chat, or the bot isn't an admin there. Check and try again."));
-    }
-  }
-
   if (st.step === "promote:count") {
     const n = Math.floor(Number(text.replace(/,/g, "")));
     if (!Number.isFinite(n) || n < cfg.tasks.minActions || n > cfg.tasks.maxActions)
       return void (await ctx.reply(`Send a number between ${cfg.tasks.minActions} and ${fmt(cfg.tasks.maxActions)}.`));
     await setState(uid, "promote:countries", { ...d, count: n });
-    return void (await ctx.reply("Target countries? Send 2-letter codes like US,BD,IN or type: all"));
+    return void (await ctx.reply(`Target countries? Send 2-letter codes like US,BD,IN or type: all\n(Restricting adds +${cfg.tasks.targetingFee} ${cfg.currency} per unit.)`));
   }
 
   if (st.step === "promote:countries") {
