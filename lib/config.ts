@@ -66,7 +66,7 @@ export const DEFAULT_CONFIG = {
     approvalAbove: 50000, // campaigns costing more need a second super admin
     sponsoredLabel: "📢 Sponsored",
   },
-  mandatory: { maxRequired: 3, warnSeconds: 30, cacheMinutes: 10 },
+  mandatory: { maxRequired: 3, warnSeconds: 30, cacheMinutes: 3 },
   rateLimit: { windowSec: 10, max: 15 },
   achievements: [
     { id: "first_task", name: "First task", metric: "tasksDone", threshold: 1, reward: 20 },

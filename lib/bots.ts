@@ -3,7 +3,7 @@ import { Api } from "grammy";
 import { decrypt, encrypt } from "./crypto";
 import { getDb } from "./firebase";
 
-export const ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "my_chat_member"] as const;
+export const ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "my_chat_member", "chat_member"] as const;
 
 export const appUrlEnv = () => (process.env.APP_URL || "").replace(/\/$/, "");
 export const botIdOf = (token: string) => token.split(":")[0];

@@ -15,6 +15,9 @@ const warnedAt = new Map<string, number>();
 
 export function bustMandatoryCache(chatId: number) { cfgCache.delete(chatId); }
 
+/** Someone left a chat: forget that they were a subscriber so the next message is re-checked. */
+export function forgetSubscription(chatId: number, userId: number) { subOk.delete(`${chatId}:${userId}`); }
+
 async function groupConfig(chatId: number): Promise<ChatDoc | null> {
   const hit = cfgCache.get(chatId);
   if (hit && Date.now() - hit.at < 60_000) return hit.chat;

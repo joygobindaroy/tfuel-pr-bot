@@ -9,7 +9,9 @@ import { taskPrice } from "../lib/tasks";
 import { rights } from "../lib/picker";
 import { allow, once } from "../lib/ratelimit";
 import { weekKey } from "../lib/leaderboard";
-import type { ChatDoc } from "../lib/chats";
+import { memberLeft, type ChatDoc } from "../lib/chats";
+import { L, LEGACY, MORE } from "../lib/labels";
+import { esc, mainMenu, moreMenu, welcomeText } from "../lib/ui";
 
 const cfg = DEFAULT_CONFIG;
 
@@ -164,5 +166,45 @@ describe("crypto, sessions and webhook secrets", () => {
     const { mirrorSecret } = await import("../lib/bots");
     expect(mirrorSecret("5")).toBe(mirrorSecret("5"));
     expect(mirrorSecret("5")).not.toBe(mirrorSecret("6"));
+  });
+});
+
+describe("menus", () => {
+  it("main keyboard is compact: 3 rows of at most 2 buttons", () => {
+    const rows = mainMenu.build();
+    expect(rows.length).toBe(3);
+    rows.forEach((r) => expect(r.length).toBeLessThanOrEqual(2));
+  });
+  it("is not persistent, so phones can collapse it", () => {
+    expect((mainMenu as unknown as { is_persistent?: boolean }).is_persistent).toBeFalsy();
+  });
+  it("More menu has every secondary action, two per row, with unique callbacks", () => {
+    const rows = moreMenu().inline_keyboard;
+    const data = rows.flat().map((b) => (b as { callback_data: string }).callback_data);
+    expect(data.length).toBe(MORE.length);
+    expect(new Set(data).size).toBe(data.length);
+    rows.forEach((r) => { expect(r.length).toBeGreaterThan(0); expect(r.length).toBeLessThanOrEqual(2); });
+  });
+  it("keeps old keyboard labels working", () => {
+    for (const k of Object.keys(LEGACY)) expect(L[k as keyof typeof L]).toBeTruthy();
+  });
+  it("welcome text escapes HTML in names and shows the numbers", () => {
+    const t = welcomeText({ brand: "TFUEL", currency: "TFUEL" }, { firstName: "<b>Eve</b>", balance: 1250.5, tasksDone: 3 }, "Pro");
+    expect(t).not.toContain("<b>Eve</b>");
+    expect(t).toContain("&lt;b&gt;Eve");
+    expect(t).toContain("1,250.5");
+    expect(t).toContain("Welcome back");
+    expect(esc("a&b")).toBe("a&amp;b");
+  });
+});
+
+describe("leave detection", () => {
+  it("treats left, kicked and unjoined restricted members as gone", () => {
+    expect(memberLeft({ status: "left" })).toBe(true);
+    expect(memberLeft({ status: "kicked" })).toBe(true);
+    expect(memberLeft({ status: "restricted", is_member: false })).toBe(true);
+    expect(memberLeft({ status: "restricted", is_member: true })).toBe(false);
+    expect(memberLeft({ status: "member" })).toBe(false);
+    expect(memberLeft({ status: "administrator" })).toBe(false);
   });
 });

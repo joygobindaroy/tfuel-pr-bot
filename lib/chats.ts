@@ -3,6 +3,8 @@ import { apiFor } from "./bots";
 import { getConfig } from "./config";
 import { getDb } from "./firebase";
 import { sendToUser } from "./notify";
+import { forgetSubscription } from "./mandatory";
+import { leaveNow } from "./tasks";
 import { getUser, usersCol } from "./users";
 
 export type ChatKind = "channel" | "supergroup" | "group";
@@ -178,4 +180,18 @@ export function registerOptIn(bot: Bot) {
     await ctx.answerCallbackQuery({ text: on ? "Sponsored posts enabled." : "Okay, no sponsored posts." });
     await ctx.editMessageText(on ? `✅ Sponsored posts enabled for ${c.title}. Manage it any time in 📡 My Chats.` : `Sponsored posts stay off for ${c.title}.`).catch(() => {});
   });
+}
+
+/** Has this member left the chat? (A restricted user who is no longer a member also counts.) */
+export const memberLeft = (m: { status: string; is_member?: boolean }) =>
+  m.status === "left" || m.status === "kicked" || (m.status === "restricted" && !m.is_member);
+
+/** Someone joined or left a chat where the bot is admin. We only care about leaving. */
+export async function onChatMember(ctx: Context) {
+  const u = ctx.chatMember;
+  if (!u) return;
+  const m = u.new_chat_member as { status: string; is_member?: boolean; user: { id: number; is_bot: boolean } };
+  if (!memberLeft(m) || m.user.is_bot) return;
+  forgetSubscription(u.chat.id, m.user.id);
+  await leaveNow(u.chat.id, m.user.id);
 }

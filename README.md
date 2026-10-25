@@ -45,6 +45,12 @@ All defaults are in `lib/config.ts`.
 - **Config history:** every Settings change is recorded and can be reverted.
 - **Tests:** `npm test` (pure logic) and a GitHub Actions workflow that runs typecheck, tests and build on every push.
 
+## Menu, welcome and leave detection (latest)
+- Main keyboard is now 3 rows (Earn, Promote, Deposit, Bonus, Account, More) and is collapsible. Everything else is under **More** (inline menu). Old keyboard labels people still have cached keep working. Press /start once to get the new keyboard.
+- **Leave detection is real-time.** When someone who completed a task leaves the channel/group, Telegram sends a `chat_member` update and the penalty and warning message go out at once. Fallback: the first re-check runs 15 minutes after joining, then daily for 7 days.
+- Requirements: the bot must be **admin** in that chat, and the webhook must include `chat_member`. After deploying this version open the admin panel, **Bots, Re-register webhook** (once per bot).
+- Mandatory subscription: the "is subscribed" result is cached for 3 minutes (`mandatory.cacheMinutes`) and cleared immediately when Telegram reports the person left.
+
 ## Things to know
 - Cron: `vercel.json` runs the retention worker once a day. It chains itself while work remains. For busy bots use a Vercel plan with more frequent crons, or ping `/api/cron/retention` (header `x-job-secret: <CRON_SECRET>`) from an external scheduler.
 - Retention checks cost one getChatMember per completed task per day for 7 days. Watch Telegram limits as you grow.

@@ -3,23 +3,24 @@ import { registerAdmin } from "./admin";
 import { notifyAchievements } from "./achievements";
 import { botIdOf } from "./bots";
 import { appUrl, notifyAdmins } from "./botInstance";
-import { onMyChatMember, registerOptIn } from "./chats";
+import { onChatMember, onMyChatMember, registerOptIn } from "./chats";
 import { getConfig, isAdmin } from "./config";
 import { logError } from "./errlog";
 import { accountText, claimFromLink, registerAccount } from "./handlers/account";
+import { actions, labelSet } from "./handlers/actions";
 import { chatsChatShared, registerChats } from "./handlers/chats";
 import { registerDeposit } from "./handlers/deposit";
 import { registerEarn } from "./handlers/earn";
 import { promoteChatShared, promoteText, registerPromote } from "./handlers/promote";
-import { L } from "./labels";
 import { registerGroupGate } from "./mandatory";
 import { netStart } from "./network";
 import { creditDeposit } from "./payments";
 import { allow, once } from "./ratelimit";
 import { setState } from "./state";
 import { incStats } from "./stats";
-import { fmt, mainMenu } from "./ui";
-import { ensureUser, getUser } from "./users";
+import { L } from "./labels";
+import { fmt, mainMenu, moreMenu, welcomeText } from "./ui";
+import { ensureUser, getUser, levelFor } from "./users";
 
 export { mainMenu };
 
@@ -37,6 +38,7 @@ export function createBot(token: string): Bot {
 
   // Chat registry + group moderation + opt-in answers run before the private-chat gates.
   bot.on("my_chat_member", (ctx) => onMyChatMember(ctx).catch((e) => logError("my_chat_member", e)));
+  bot.on("chat_member", (ctx) => onChatMember(ctx).catch((e) => logError("chat_member", e)));
   registerGroupGate(bot);
   registerOptIn(bot);
 
@@ -135,7 +137,7 @@ export function createBot(token: string): Bot {
     await next();
   });
 
-  const labels = new Set<string>(Object.values(L));
+  const labels = labelSet();
   bot.use(async (ctx, next) => {
     const t = ctx.message?.text;
     if (t && ctx.user.state && (labels.has(t) || t.startsWith("/"))) {
@@ -151,7 +153,17 @@ export function createBot(token: string): Bot {
     const cfg = await getConfig();
     const payload = String(ctx.match ?? "");
     if (payload.startsWith("chk_")) await claimFromLink(ctx, payload.slice(4));
-    await ctx.reply(`Welcome to ${cfg.brand}.\nEarn ${cfg.currency} by completing simple tasks, or spend it to promote your channel or group.`, { reply_markup: mainMenu });
+    const u = (await getUser(ctx.from!.id)) ?? ctx.user;
+    await ctx.reply(welcomeText(cfg, u, levelFor(u.xp, cfg.levels).name), { parse_mode: "HTML", reply_markup: mainMenu });
+  });
+
+  bot.hears(L.more, (ctx) => ctx.reply("More", { reply_markup: moreMenu() }));
+  bot.callbackQuery(/^go:(\w+)$/, async (ctx) => {
+    const fn = actions.get(ctx.match[1]);
+    await ctx.answerCallbackQuery();
+    if (!fn) return;
+    ctx.fresh = true;
+    await fn(ctx);
   });
 
   registerEarn(bot);

@@ -269,7 +269,7 @@ export async function completeTask(userId: number, taskId: string): Promise<Comp
     });
     t.set(cref, {
       taskId, userId, ownerId: task.ownerId, chatId: task.chatId, botId: task.botId ?? "", title: task.title, reward: task.reward,
-      cost: task.cost, commission: task.commission, payout, joinedAt: now, status: "active", nextCheckAt: now + DAY,
+      cost: task.cost, commission: task.commission, payout, joinedAt: now, status: "active", nextCheckAt: now + 15 * 60_000,
     });
     t.set(ledger(userId).doc(), {
       amount: payout, type: "task_complete", meta: { taskId, bonus }, balanceAfter: balance, createdAt: now,
@@ -313,7 +313,7 @@ export async function reportTask(userId: number, taskId: string) {
 
 /* ---------------- retention (leave within N days) ---------------- */
 
-async function applyLeave(compId: string) {
+export async function applyLeave(compId: string) {
   const cfg = await getConfig();
   const cref = compCol().doc(compId);
   const out = await getDb().runTransaction(async (t) => {
@@ -391,4 +391,22 @@ export async function processRetention(deadline: number) {
     }
   }
   return { processed, more: true };
+}
+
+/**
+ * Real-time leave detection: Telegram tells us (chat_member update) the moment someone leaves a chat where the
+ * bot is admin. If they completed a task there inside the retention window, apply the penalty right away.
+ */
+export async function leaveNow(chatId: number, userId: number) {
+  const cfg = await getConfig();
+  const snap = await compCol().where("chatId", "==", chatId).where("userId", "==", userId).limit(10).get();
+  for (const d of snap.docs) {
+    const c = d.data() as { status: string; joinedAt: number };
+    if (c.status !== "active") continue;
+    if (Date.now() >= c.joinedAt + cfg.tasks.retentionDays * DAY) {
+      await d.ref.update({ status: "retained", nextCheckAt: FieldValue.delete() });
+      continue;
+    }
+    await applyLeave(d.id);
+  }
 }
