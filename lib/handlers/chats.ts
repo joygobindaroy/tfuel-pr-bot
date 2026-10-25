@@ -3,6 +3,7 @@ import { apiFor } from "../bots";
 import { chatsCol, getChat, refreshChat, registerChat, withChatDefaults, type ChatDoc } from "../chats";
 import { getConfig } from "../config";
 import { L } from "../labels";
+import { action } from "./actions";
 import { bustMandatoryCache } from "../mandatory";
 import { NOT_ADMIN_HELP, pickerKeyboard } from "../picker";
 import { setState } from "../state";
@@ -70,7 +71,7 @@ async function isChatAdmin(ctx: Context, chatId: number, userId: number) {
 }
 
 export function registerChats(bot: Bot) {
-  bot.hears(L.chats, async (ctx) => { await setState(ctx.from!.id, null); await list(ctx); });
+  action(bot, "chats", L.chats, async (ctx) => { await setState(ctx.from!.id, null); await list(ctx); });
   bot.callbackQuery("ch:list", async (ctx) => { await ctx.answerCallbackQuery(); await list(ctx); });
   bot.callbackQuery(/^ch:v:(-?\d+)$/, async (ctx) => { await ctx.answerCallbackQuery(); await detail(ctx, Number(ctx.match[1])); });
 

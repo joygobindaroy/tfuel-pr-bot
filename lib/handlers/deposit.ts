@@ -3,6 +3,7 @@ import { notifyAchievements } from "../achievements";
 import { binanceEnabled, createUsdtOrder, settleUsdtOrder } from "../binance";
 import { getConfig, type AppConfig } from "../config";
 import { L } from "../labels";
+import { action } from "./actions";
 import { depositQuote, usdtQuote } from "../payments";
 import { fmt, show } from "../ui";
 
@@ -40,7 +41,7 @@ async function menu(ctx: Context) {
 }
 
 export function registerDeposit(bot: Bot) {
-  bot.hears(L.deposit, menu);
+  action(bot, "deposit", L.deposit, menu);
   bot.callbackQuery("dm:menu", async (ctx) => { await ctx.answerCallbackQuery(); await menu(ctx); });
 
   bot.callbackQuery("dm:stars", async (ctx) => {

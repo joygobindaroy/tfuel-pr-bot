@@ -84,7 +84,7 @@ export async function POST(req: Request) {
     void incStats({ verified: 1, tfuelMinted: done.bonus + done.referralReward });
     try {
       if (user.source?.kind === "net") void netStart(user.source.id, true);
-      await sendToUser(id, `✅ Verified. Welcome bonus: +${done.bonus} ${cfg.currency}.`, { reply_markup: mainMenu });
+      await sendToUser(id, `<b>You're verified</b>\n\nWelcome bonus: <b>+${done.bonus} ${cfg.currency}</b> added to your balance.\n\nPick an option below to start.`, { parse_mode: "HTML", reply_markup: mainMenu });
       if (done.referralReward > 0 && user.referrerId) {
         const referrer = await getUser(user.referrerId);
         if (referrer?.notif.referrals) {

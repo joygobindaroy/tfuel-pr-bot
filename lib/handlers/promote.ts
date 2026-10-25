@@ -3,6 +3,7 @@ import { registerChat } from "../chats";
 import { getConfig } from "../config";
 import { getDb } from "../firebase";
 import { L } from "../labels";
+import { action } from "./actions";
 import { NOT_ADMIN_HELP, pickerKeyboard } from "../picker";
 import { setState } from "../state";
 import {
@@ -81,7 +82,7 @@ export function registerPromote(bot: Bot) {
     const [cfg, u] = await Promise.all([getConfig(), getUser(ctx.from!.id)]);
     await show(ctx, `What do you want to promote?\n\nBalance: ${fmt(u?.balance ?? 0)} ${cfg.currency}`, promoteMenu());
   };
-  bot.hears(L.promote, open);
+  action(bot, "promote", L.promote, open);
   bot.callbackQuery("pro:menu", async (ctx) => { await ctx.answerCallbackQuery(); await open(ctx); });
 
   bot.callbackQuery(/^pro:new:(channel|group)$/, async (ctx) => {

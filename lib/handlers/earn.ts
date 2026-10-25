@@ -3,6 +3,7 @@ import { notifyAchievements } from "../achievements";
 import { makeCaptcha } from "../captcha";
 import { getConfig } from "../config";
 import { L } from "../labels";
+import { action } from "./actions";
 import { completeTask, countActive, findTasks, getTask, membership, pauseTaskFatal, reportTask, type TaskType } from "../tasks";
 import { fmt, show } from "../ui";
 import { getUser, levelFor, usersCol } from "../users";
@@ -52,7 +53,7 @@ async function showTask(ctx: Context, type: TaskType) {
 }
 
 export function registerEarn(bot: Bot) {
-  bot.hears(L.earn, earnMenu);
+  action(bot, "earn", L.earn, earnMenu);
   bot.callbackQuery("earn:menu", async (ctx) => { await ctx.answerCallbackQuery(); await earnMenu(ctx); });
 
   bot.callbackQuery(/^earn:(channel|group)$/, async (ctx) => {

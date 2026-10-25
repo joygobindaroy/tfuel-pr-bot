@@ -4,6 +4,7 @@ import { appUrl } from "../botInstance";
 import { cancelCheck, claimCheck, createCheck, myChecks } from "../checks";
 import { getConfig } from "../config";
 import { L } from "../labels";
+import { action } from "./actions";
 import { topOf } from "../leaderboard";
 import { redeemPromo } from "../promo";
 import { setState } from "../state";
@@ -52,7 +53,7 @@ async function leaderboard(ctx: Context, kind: "earn" | "refs") {
 }
 
 export function registerAccount(bot: Bot) {
-  bot.hears(L.cabinet, cabinet);
+  action(bot, "cabinet", L.cabinet, cabinet);
   bot.callbackQuery("acc:cabinet", async (ctx) => { await ctx.answerCallbackQuery(); await cabinet(ctx); });
 
   bot.callbackQuery("acc:history", async (ctx) => {
@@ -67,7 +68,7 @@ export function registerAccount(bot: Bot) {
     await show(ctx, `📜 Last transactions (${cfg.currency})\n\n${lines.join("\n") || "Nothing yet."}`, new InlineKeyboard().text("⬅️ Back", "acc:cabinet"));
   });
 
-  bot.hears(L.settings, settings);
+  action(bot, "settings", L.settings, settings);
   bot.callbackQuery("acc:settings", async (ctx) => { await ctx.answerCallbackQuery(); await settings(ctx); });
   bot.callbackQuery(/^set:(tasks|news|referrals)$/, async (ctx) => {
     const k = ctx.match[1];
@@ -77,7 +78,7 @@ export function registerAccount(bot: Bot) {
     await settings(ctx);
   });
 
-  bot.hears(L.daily, async (ctx) => {
+  action(bot, "daily", L.daily, async (ctx) => {
     const cfg = await getConfig();
     const r = await claimDaily(ctx.from!.id);
     if (!r.ok) {
@@ -89,7 +90,7 @@ export function registerAccount(bot: Bot) {
     void notifyAchievements(ctx.from!.id);
   });
 
-  bot.hears(L.refs, async (ctx) => {
+  action(bot, "refs", L.refs, async (ctx) => {
     const cfg = await getConfig();
     const u = (await getUser(ctx.from!.id))!;
     const link = `https://t.me/${ctx.me.username}?start=ref_${u.id}`;
@@ -97,10 +98,10 @@ export function registerAccount(bot: Bot) {
     await ctx.reply(`🤝 Referral program\n\nYour link:\n${link}\n\nInvited: ${u.referralCount}\n\nReward per verified friend:\n${tiers}`);
   });
 
-  bot.hears(L.board, (ctx) => leaderboard(ctx, "earn"));
+  action(bot, "board", L.board, (ctx) => leaderboard(ctx, "earn"));
   bot.callbackQuery(/^lb:(earn|refs)$/, async (ctx) => { await ctx.answerCallbackQuery(); await leaderboard(ctx, ctx.match[1] as "earn" | "refs"); });
 
-  bot.hears(L.ach, async (ctx) => {
+  action(bot, "ach", L.ach, async (ctx) => {
     const cfg = await getConfig();
     const u = (await getUser(ctx.from!.id))!;
     const m = metricsOf(u);
@@ -111,21 +112,21 @@ export function registerAccount(bot: Bot) {
     await ctx.reply(`🏅 Achievements\n\n${lines.join("\n")}`);
   });
 
-  bot.hears(L.promo, async (ctx) => {
+  action(bot, "promo", L.promo, async (ctx) => {
     await setState(ctx.from!.id, "promo");
     await ctx.reply("Send your promo code:");
   });
 
-  bot.hears(L.stats, async (ctx) => {
+  action(bot, "stats", L.stats, async (ctx) => {
     const s = await countUsers();
     await ctx.reply(`📊 ${fmt(s.total)} users, ${fmt(s.verified)} verified.`);
   });
 
-  bot.hears(L.app, async (ctx) => {
+  action(bot, "app", L.app, async (ctx) => {
     await ctx.reply("Open your dashboard:", { reply_markup: new InlineKeyboard().webApp("🌐 Open App", `${appUrl()}/app`) });
   });
 
-  bot.hears(L.links, async (ctx) => {
+  action(bot, "links", L.links, async (ctx) => {
     const cfg = await getConfig();
     const kb = new InlineKeyboard();
     const add = (label: string, url: string) => { if (url) kb.url(label, url).row(); };
@@ -136,19 +137,19 @@ export function registerAccount(bot: Bot) {
     await ctx.reply("Useful links:", { reply_markup: kb });
   });
 
-  bot.hears(L.help, (ctx) =>
+  action(bot, "help", L.help, (ctx) =>
     ctx.reply(
       "How it works:\n• Earnings: subscribe or join, press Check, get paid.\n• Promote: spend balance to grow your channel or group.\n• Deposit: add balance with Telegram Stars or USDT.\n• Daily Bonus: claim once a day, build a streak.\n• Checks: send coins to friends with a link.\n• Support: open a ticket if you need help.\n\nLeaving a channel within a few days of subscribing costs a penalty."
     )
   );
 
-  bot.hears(L.support, async (ctx) => {
+  action(bot, "support", L.support, async (ctx) => {
     await setState(ctx.from!.id, "ticket");
     await ctx.reply("Describe your problem in one message. Include payment IDs if it's about a deposit.");
   });
 
   /* Checks */
-  bot.hears(L.checks, async (ctx) => {
+  action(bot, "checks", L.checks, async (ctx) => {
     await setState(ctx.from!.id, null);
     const kb = new InlineKeyboard()
       .text("➕ Personal check", "chk:new:1").text("➕ Multi-check", "chk:new:n").row()
