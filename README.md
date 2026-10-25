@@ -51,6 +51,17 @@ All defaults are in `lib/config.ts`.
 - Requirements: the bot must be **admin** in that chat, and the webhook must include `chat_member`. After deploying this version open the admin panel, **Bots, Re-register webhook** (once per bot).
 - Mandatory subscription: the "is subscribed" result is cached for 3 minutes (`mandatory.cacheMinutes`) and cleared immediately when Telegram reports the person left.
 
+## Cron job in 6 steps (cron-job.org)
+1. Find your secret: Vercel project, Settings, Environment Variables, `CRON_SECRET` (click the eye icon and copy it). Never paste it in a chat.
+2. Open cron-job.org, sign up, press **Create cronjob**.
+3. URL: `https://YOUR-APP.vercel.app/api/cron/tick`. Schedule: every 1 minute.
+4. Open the **Advanced** section. Add a request header: name `Authorization`, value `Bearer ` followed by the secret (one space after Bearer).
+5. Request method GET. Save.
+6. In the admin panel open **System**: it should say "running" within two minutes. The **Run now** button there runs one tick by hand to test.
+
+## Promote payments
+The promoter sets the reward per action (minimum and recommended are shown; higher rewards are shown to workers first), picks a count (quick buttons, including the maximum the balance allows), then chooses to pay from balance or directly in Telegram Stars (`tasks.starsDiscountPct` cheaper). A Stars payment becomes a deposit that is spent on the task at once; if the task cannot start, the value is credited to the balance instead.
+
 ## Things to know
 - Cron: `vercel.json` runs the retention worker once a day. It chains itself while work remains. For busy bots use a Vercel plan with more frequent crons, or ping `/api/cron/retention` (header `x-job-secret: <CRON_SECRET>`) from an external scheduler.
 - Retention checks cost one getChatMember per completed task per day for 7 days. Watch Telegram limits as you grow.

@@ -45,11 +45,15 @@ export const tasksCol = () => getDb().collection("tasks");
 const compCol = () => getDb().collection("completions");
 const DAY = 86_400_000;
 
-export function taskPrice(type: TaskType, cfg: AppConfig, opts: { premium?: boolean; targeted?: boolean } = {}) {
+export function taskPrice(
+  type: TaskType, cfg: AppConfig,
+  opts: { premium?: boolean; targeted?: boolean; reward?: number } = {}
+) {
   const base = opts.premium ? cfg.tasks[type].premiumReward : cfg.tasks[type].reward;
-  const reward = round(base + (opts.targeted ? cfg.tasks.targetingFee : 0));
+  const min = round(base + (opts.targeted ? cfg.tasks.targetingFee : 0));
+  const reward = opts.reward && opts.reward > min ? round(opts.reward) : min;
   const commission = round((reward * cfg.tasks.commissionPct) / 100);
-  return { reward, commission, cost: round(reward + commission) };
+  return { reward, commission, cost: round(reward + commission), min, recommended: round(min * cfg.tasks.recommendedMult) };
 }
 
 export async function getTask(id: string) {
@@ -90,12 +94,14 @@ export async function pauseTaskFatal(taskId: string) {
 export type NewTask = {
   ownerId: number; type: TaskType; chatId: number; username: string; title: string;
   count: number; countries: string[]; dailyBudget: number; startAt: number;
-  botId?: string; premiumOnly?: boolean; link?: string;
+  botId?: string; premiumOnly?: boolean; link?: string; reward?: number;
+  /** Paid directly in Telegram Stars: no balance is needed, the Stars value is booked as a deposit and spent at once. */
+  paid?: { chargeId: string; stars: number };
 };
 
 export async function createTask(p: NewTask) {
   const cfg = await getConfig();
-  const price = taskPrice(p.type, cfg, { premium: !!p.premiumOnly, targeted: p.countries.length > 0 });
+  const price = taskPrice(p.type, cfg, { premium: !!p.premiumOnly, targeted: p.countries.length > 0, reward: p.reward });
   if (p.count < cfg.tasks.minActions || p.count > cfg.tasks.maxActions) throw new Error("bad_count");
   const active = await tasksCol().where("ownerId", "==", p.ownerId).where("status", "==", "active").count().get();
   if (active.data().count >= cfg.tasks.maxActiveTasksPerUser) throw new Error("too_many_tasks");
@@ -103,25 +109,38 @@ export async function createTask(p: NewTask) {
   const total = round(price.cost * p.count);
   const ref = tasksCol().doc();
   const uref = usersCol().doc(String(p.ownerId));
+  const payRef = p.paid ? getDb().collection("payments").doc(p.paid.chargeId) : null;
+
   await getDb().runTransaction(async (t) => {
-    const u = withDefaults((await t.get(uref)).data());
-    if (u.balance < total) throw new Error("insufficient_balance");
-    const balance = round(u.balance - total);
-    t.update(uref, { balance });
+    const [us, pay] = await Promise.all([t.get(uref), payRef ? t.get(payRef) : Promise.resolve(null)]);
+    if (pay?.exists) throw new Error("duplicate");
+    const u = withDefaults(us.data());
+    const now = Date.now();
+    if (!p.paid && u.balance < total) throw new Error("insufficient_balance");
+
     const doc: TaskDoc = {
       id: ref.id, ownerId: p.ownerId, type: p.type, chatId: p.chatId, username: p.username,
-      title: p.title, link: p.link || `https://t.me/${p.username.replace(/^@/, "")}`, ...price,
+      title: p.title, link: p.link || `https://t.me/${p.username.replace(/^@/, "")}`,
+      reward: price.reward, commission: price.commission, cost: price.cost,
       total: p.count, remaining: p.count, completed: 0, reserved: total, spent: 0, status: "active",
       startAt: p.startAt, dailyBudget: p.dailyBudget, dailySpent: 0, dailyDay: "", countries: p.countries,
-      reports: 0, leaves: 0, createdAt: Date.now(),
+      reports: 0, leaves: 0, createdAt: now,
       botId: p.botId ?? "", premiumOnly: !!p.premiumOnly,
     };
     t.set(ref, doc);
-    t.set(ledger(p.ownerId).doc(), {
-      amount: -total, type: "task_create", meta: { taskId: ref.id, count: p.count }, balanceAfter: balance, createdAt: Date.now(),
-    });
+
+    if (p.paid && payRef) {
+      t.set(payRef, { userId: p.ownerId, stars: p.paid.stars, total, status: "credited", method: "stars", purpose: "task", taskId: ref.id, createdAt: now });
+      t.update(uref, { depositedStars: FieldValue.increment(p.paid.stars) });
+      t.set(ledger(p.ownerId).doc(), { amount: total, type: "deposit_stars", meta: { stars: p.paid.stars, chargeId: p.paid.chargeId, forTask: ref.id }, balanceAfter: u.balance + total, createdAt: now });
+      t.set(ledger(p.ownerId).doc(), { amount: -total, type: "task_create", meta: { taskId: ref.id, count: p.count, paidWith: "stars" }, balanceAfter: u.balance, createdAt: now + 1 });
+    } else {
+      const balance = round(u.balance - total);
+      t.update(uref, { balance });
+      t.set(ledger(p.ownerId).doc(), { amount: -total, type: "task_create", meta: { taskId: ref.id, count: p.count }, balanceAfter: balance, createdAt: now });
+    }
   });
-  return { id: ref.id, total, ...price };
+  return { id: ref.id, total, reward: price.reward, commission: price.commission, cost: price.cost };
 }
 
 export async function myTasks(ownerId: number) {
@@ -213,7 +232,10 @@ export async function findTasks(user: ReturnType<typeof withDefaults>, type: Tas
         (t.countries.length === 0 || (user.countryTrusted && t.countries.includes(user.country || ""))) &&
         (t.dailyBudget === 0 || t.dailyDay !== today || t.dailySpent + t.cost <= t.dailyBudget)
     )
-    .sort(() => Math.random() - 0.5)
+    // higher reward = shown sooner, with some randomness so everyone gets a turn
+    .map((t) => ({ t, k: t.reward * (0.75 + Math.random() * 0.5) }))
+    .sort((x, y) => y.k - x.k)
+    .map((x) => x.t)
     .slice(0, 15);
   if (!list.length) return [];
 

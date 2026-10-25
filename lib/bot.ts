@@ -15,6 +15,7 @@ import { promoteChatShared, promoteText, registerPromote } from "./handlers/prom
 import { registerGroupGate } from "./mandatory";
 import { netStart } from "./network";
 import { creditDeposit } from "./payments";
+import { payDraftWithStars, readDraft } from "./taskpay";
 import { allow, once } from "./ratelimit";
 import { setState } from "./state";
 import { incStats } from "./stats";
@@ -54,6 +55,13 @@ export function createBot(token: string): Bot {
     const q = ctx.preCheckoutQuery;
     const cfg = await getConfig();
     const fail = (msg: string) => ctx.answerPreCheckoutQuery(false, msg);
+    if (q.invoice_payload.startsWith("tsk:")) {
+      const d = await readDraft(q.invoice_payload.slice(4));
+      if (!d || q.currency !== "XTR" || d.ownerId !== q.from.id || d.status !== "open" || d.expiresAt < Date.now() || d.stars !== q.total_amount) {
+        return fail("This order expired. Please create the task again.");
+      }
+      return ctx.answerPreCheckoutQuery(true);
+    }
     const m = q.invoice_payload.match(/^dep:(\d+):(\d+)$/);
     if (!m || q.currency !== "XTR") return fail("Invalid payment.");
     const uid = Number(m[1]);
@@ -72,6 +80,21 @@ export function createBot(token: string): Bot {
     try {
       if (p.currency !== "XTR") throw new Error("unexpected currency");
       const cfg = await getConfig();
+      if (p.invoice_payload.startsWith("tsk:")) {
+        const r = await payDraftWithStars(p.invoice_payload.slice(4), userId, p.telegram_payment_charge_id, p.total_amount);
+        await setState(userId, null);
+        void incStats({ depositsStars: p.total_amount });
+        if (r.ok && r.duplicate) return;
+        if (r.ok) {
+          await ctx.reply(`✅ Payment received. Your task is live.\nPaid: ${p.total_amount} ⭐ (worth ${fmt(r.total)} ${cfg.currency})\n\nPayment ID: ${p.telegram_payment_charge_id}`, {
+            reply_markup: new InlineKeyboard().text("📋 My tasks", "pro:list"),
+          });
+        } else {
+          await ctx.reply(`We received your payment but couldn't start the task, so ${r.reason === "credited" ? `${fmt(r.total)} ${cfg.currency} were added to your balance instead` : "our team has been notified"}. You can create the task again from your balance.\n\nPayment ID: ${p.telegram_payment_charge_id}`);
+          await notifyAdmins(`ℹ️ Task payment fallback for user ${userId}: ${p.total_amount} ⭐ credited as balance (${r.reason}).`);
+        }
+        return;
+      }
       const r = await creditDeposit(userId, p.total_amount, p.telegram_payment_charge_id, cfg);
       if (r.duplicate) return;
       void incStats({ depositsStars: p.total_amount, tfuelMinted: r.total });

@@ -3,11 +3,11 @@ import { L, MORE } from "./labels";
 
 export const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
-/** Compact main menu: 3 rows, collapsible (not persistent), everything else is under "More". */
+/** Compact main menu, collapsible (not persistent). Deposit lives in Profile; everything else is under "More". */
 export const mainMenu = new Keyboard()
   .text(L.earn).text(L.promote).row()
-  .text(L.deposit).text(L.daily).row()
-  .text(L.cabinet).text(L.more)
+  .text(L.daily).text(L.cabinet).row()
+  .text(L.more)
   .resized();
 
 export function moreMenu() {

@@ -4,7 +4,7 @@ export const L = {
   promote: "📣 Promote",
   deposit: "💳 Deposit",
   daily: "🎁 Bonus",
-  cabinet: "👤 Account",
+  cabinet: "👤 Profile",
   more: "⋯ More",
   checks: "🧾 Checks",
   board: "🏆 Leaderboard",
@@ -21,10 +21,10 @@ export const L = {
 };
 
 /** Old keyboard labels still cached on people's phones keep working. */
-export const LEGACY: Record<string, string> = {
-  earn: "💰 Earnings",
-  daily: "🎁 Daily Bonus",
-  cabinet: "👤 My Cabinet",
+export const LEGACY: Record<string, string[]> = {
+  earn: ["💰 Earnings"],
+  daily: ["🎁 Daily Bonus"],
+  cabinet: ["👤 My Cabinet", "👤 Account"],
 };
 
 /** The "More" menu: plain words, two per row. */

@@ -1,5 +1,5 @@
 import { InlineKeyboard, type Api, type Bot, type Context } from "grammy";
-import { apiFor } from "./bots";
+import { apiFor, primaryBotId } from "./bots";
 import { getConfig } from "./config";
 import { getDb } from "./firebase";
 import { sendToUser } from "./notify";
@@ -194,4 +194,27 @@ export async function onChatMember(ctx: Context) {
   if (!memberLeft(m) || m.user.is_bot) return;
   forgetSubscription(u.chat.id, m.user.id);
   await leaveNow(u.chat.id, m.user.id);
+}
+
+/** Registers every chat that already has a task but is missing from the registry (the bot was added before registry existed). */
+export async function backfillFromTasks() {
+  const snap = await getDb().collection("tasks").limit(500).get();
+  const seen = new Map<number, { botId: string; title: string; username: string; type: string; ownerId: number }>();
+  for (const d of snap.docs) {
+    const t = d.data() as { chatId: number; botId?: string; title: string; username: string; type: string; ownerId: number };
+    if (!seen.has(t.chatId)) seen.set(t.chatId, { botId: t.botId || "", title: t.title, username: t.username, type: t.type, ownerId: t.ownerId });
+  }
+  let added = 0, skipped = 0, failed = 0;
+  for (const [id, t] of seen) {
+    if ((await chatsCol().doc(String(id)).get()).exists) { skipped++; continue; }
+    try {
+      const api = await apiFor(t.botId || null);
+      const info = await api.getChat(id);
+      const doc = await registerChat(api, t.botId || primaryBotId(), {
+        id, type: info.type, title: "title" in info ? info.title : t.title, username: "username" in info ? info.username : undefined,
+      }, t.ownerId);
+      if (doc) added++; else failed++;
+    } catch { failed++; }
+  }
+  return { added, skipped, failed, total: seen.size };
 }

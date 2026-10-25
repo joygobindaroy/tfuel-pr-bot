@@ -46,6 +46,8 @@ export const DEFAULT_CONFIG = {
     channel: { reward: 30, premiumReward: 55 }, // paid to the user per subscribe (premiumReward = Premium-only audience)
     group: { reward: 20, premiumReward: 38 },
     targetingFee: 5, // added per unit when countries are restricted
+    recommendedMult: 1.2, // "recommended price" shown to promoters = minimum x this
+    starsDiscountPct: 10, // paying a task directly in Stars costs this % less than paying from balance
     commissionPct: 20, // added on top of reward, paid by the promoter
     minActions: 10,
     maxActions: 100000,

@@ -6,6 +6,7 @@ import { validSegment } from "../lib/broadcast";
 import { makeCaptcha } from "../lib/captcha";
 import { calcBonus, isEligible } from "../lib/network";
 import { taskPrice } from "../lib/tasks";
+import { quote, starsFor } from "../lib/taskpay";
 import { rights } from "../lib/picker";
 import { allow, once } from "../lib/ratelimit";
 import { weekKey } from "../lib/leaderboard";
@@ -170,9 +171,10 @@ describe("crypto, sessions and webhook secrets", () => {
 });
 
 describe("menus", () => {
-  it("main keyboard is compact: 3 rows of at most 2 buttons", () => {
+  it("main keyboard is compact and has no Deposit button (it lives in Profile)", () => {
     const rows = mainMenu.build();
     expect(rows.length).toBe(3);
+    expect(rows.flat().some((b) => /deposit/i.test((b as { text: string }).text))).toBe(false);
     rows.forEach((r) => expect(r.length).toBeLessThanOrEqual(2));
   });
   it("is not persistent, so phones can collapse it", () => {
@@ -186,7 +188,7 @@ describe("menus", () => {
     rows.forEach((r) => { expect(r.length).toBeGreaterThan(0); expect(r.length).toBeLessThanOrEqual(2); });
   });
   it("keeps old keyboard labels working", () => {
-    for (const k of Object.keys(LEGACY)) expect(L[k as keyof typeof L]).toBeTruthy();
+    for (const k of Object.keys(LEGACY)) { expect(L[k as keyof typeof L]).toBeTruthy(); expect(LEGACY[k].length).toBeGreaterThan(0); }
   });
   it("welcome text escapes HTML in names and shows the numbers", () => {
     const t = welcomeText({ brand: "TFUEL", currency: "TFUEL" }, { firstName: "<b>Eve</b>", balance: 1250.5, tasksDone: 3 }, "Pro");
@@ -206,5 +208,26 @@ describe("leave detection", () => {
     expect(memberLeft({ status: "restricted", is_member: true })).toBe(false);
     expect(memberLeft({ status: "member" })).toBe(false);
     expect(memberLeft({ status: "administrator" })).toBe(false);
+  });
+});
+
+describe("owner-set task price and Stars payment", () => {
+  it("never lets the reward fall below the minimum, and adds commission on top", () => {
+    expect(taskPrice("channel", cfg, { reward: 10 }).reward).toBe(30);
+    const p = taskPrice("channel", cfg, { reward: 50 });
+    expect(p).toMatchObject({ reward: 50, commission: 10, cost: 60, min: 30, recommended: 36 });
+  });
+  it("country targeting raises the floor", () => {
+    expect(taskPrice("channel", cfg, { targeted: true, reward: 32 }).reward).toBe(35);
+  });
+  it("pays less in Stars than from balance by the configured discount", () => {
+    // 1000 TFUEL at rate 100 = 10 Stars, minus 10% = 9
+    expect(starsFor(1000, cfg)).toBe(9);
+    expect(starsFor(1, cfg)).toBe(1);
+  });
+  it("quotes a draft consistently", () => {
+    const q = quote({ type: "channel", chatId: 1, username: "x", title: "t", link: "l", premiumOnly: false, reward: 50, count: 100, countries: [], dailyBudget: 0, startAt: 0 }, cfg);
+    expect(q.total).toBe(6000);
+    expect(q.stars).toBe(starsFor(6000, cfg));
   });
 });
