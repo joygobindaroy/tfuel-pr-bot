@@ -3,7 +3,8 @@ import { addMirrorBot, apiFor, registerWebhook, removeMirrorBot } from "@/lib/bo
 import { botUsername } from "@/lib/botInstance";
 import { backfillFromTasks, chatsCol } from "@/lib/chats";
 import { runTick } from "@/lib/jobs";
-import { approveCampaign, cancelCampaign, createCampaign, type NewCampaign } from "@/lib/network";
+import { approveCampaign, cancelCampaign, createCampaign, runCampaign, testPost, type NewCampaign } from "@/lib/network";
+import { runBroadcast } from "@/lib/broadcast";
 import { FieldValue } from "firebase-admin/firestore";
 import { getConfig } from "@/lib/config";
 import { startBroadcast, validSegment } from "@/lib/broadcast";
@@ -18,6 +19,7 @@ import { credit, getUser, usersCol } from "@/lib/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function nest(path: string, value: unknown) {
   const out: Record<string, unknown> = {};
@@ -126,8 +128,12 @@ export async function POST(req: Request) {
         if (!text || text.length > 3500) return bad("Message must be 1-3500 characters.");
         const id = await startBroadcast(adminId, segment, text);
         await audit(adminId, "broadcast", id, { segment });
-        await kickWorker();
-        return done(`Broadcast started (${id}).`);
+        const finished = await runBroadcast(id, Date.now() + 25_000);
+        const snap = await db.collection("broadcasts").doc(id).get();
+        const x = snap.data() as { sent: number; failed: number; skipped: number };
+        if (!finished) await kickWorker();
+        if (x.sent === 0 && finished) return bad(`Nobody received it (failed ${x.failed}, skipped ${x.skipped}). Check the audience and that users have not turned off broadcasts.`);
+        return done(`Sent to ${x.sent} user(s)${x.failed ? `, ${x.failed} failed` : ""}${finished ? "." : ". The rest continues in the background (the scheduler must be running)."}`);
       }
 
       case "maintenance": {
@@ -185,14 +191,18 @@ export async function POST(req: Request) {
         if (!need("network")) return deny();
         const c = b.campaign as NewCampaign;
         if (!c) return bad("Missing campaign.");
-        try {
-          const r = await createCampaign(adminId, c);
-          await audit(adminId, "net_create", r.id, { status: r.status, count: r.count, totalBonus: r.totalBonus });
-          if (r.status === "running") await kickWorker();
-          const msg = r.status === "pending_approval" ? `Created. It costs ${r.totalBonus}, so another super admin must approve it before it sends.`
-            : r.status === "scheduled" ? "Scheduled." : `Started: ${r.count} chats, promised bonus ${r.totalBonus}.`;
-          return done(msg);
-        } catch (e) { return bad((e as Error).message); }
+        let r;
+        try { r = await createCampaign(adminId, c); } catch (e) { return bad((e as Error).message); }
+        await audit(adminId, "net_create", r.id, { status: r.status, count: r.count, totalBonus: r.totalBonus });
+        if (r.status === "pending_approval") return done(`Created for ${r.count} chats. It costs ${r.totalBonus}, so another super admin must approve it before it sends.`);
+        if (r.status === "scheduled") return done("Scheduled. The scheduler (cron) must be running for it to send at that time.");
+        // Send right now instead of waiting for the scheduler, so the result you see is real.
+        await runCampaign(r.id, Date.now() + 25_000);
+        const snap = await db.collection("net_campaigns").doc(r.id).get();
+        const x = snap.data() as { totals: { sent: number; failed: number }; queue: number[]; lastErrors?: { error: string }[] };
+        if (x.totals.sent === 0) return bad(`Nothing was delivered. ${x.lastErrors?.[0]?.error ?? "Telegram refused every post."}`);
+        const left = x.queue.length;
+        return done(`Delivered to ${x.totals.sent} chat(s)${x.totals.failed ? `, ${x.totals.failed} failed` : ""}${left ? `. ${left} more are queued for the scheduler.` : "."}`);
       }
       case "net_approve": {
         if (!need("network")) return deny();
@@ -220,6 +230,15 @@ export async function POST(req: Request) {
           else await api.sendMessage(adminId, text, { reply_markup: markup, link_preview_options: { is_disabled: true } });
         } catch (e) { return bad(`Test failed: ${(e as Error).message}. Start the bot in a private chat first.`); }
         return done("Test message sent to your Telegram.");
+      }
+      case "net_test_chat": {
+        if (!need("network")) return deny();
+        const c = b.campaign as NewCampaign;
+        const chatId = Number(b.chatId);
+        if (!c?.text || !chatId) return bad("Write the message and enter a chat id.");
+        try { await testPost(chatId, c); } catch (e) { return bad(`Telegram said: ${(e as Error).message}`); }
+        await audit(adminId, "net_test_chat", String(chatId));
+        return done("Test post delivered to that chat.");
       }
       case "chat_flag": {
         if (!need("network")) return deny();

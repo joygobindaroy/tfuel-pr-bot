@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { act, Loading, q, useLoad, useRun, when } from "../ui";
+import Plans from "./Plans";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -51,7 +52,11 @@ function Json({ path, value, onSave }: { path: string; value: any; onSave: (p: s
   );
 }
 
+/** Everything shown as a table in Plans is hidden from the generic list. */
+const PLAN_PATHS = new Set(["levels", "referralTiers", "deposit.packages", "deposit.bonusTiers", "usdt.packages", "usdt.bonusTiers", "achievements", "tasks.channel", "tasks.group"]);
+
 function Node({ path, value, onSave, root }: { path: string; value: any; onSave: (p: string, v: unknown) => Promise<boolean>; root?: boolean }) {
+  if (PLAN_PATHS.has(path)) return null;
   if (Array.isArray(value)) return <Json path={path} value={value} onSave={onSave} />;
   if (value && typeof value === "object") {
     const entries = Object.entries(value).filter(([k]) => !(root && k === "maintenance"));
@@ -107,9 +112,11 @@ export default function Settings() {
             onClick={() => run(() => act("maintenance", { on: !cfg.maintenance }), reload)} />
         </div>
       </div>
+      <h2 style={{ margin: "26px 0 14px", fontSize: "1.25rem" }}>Plans</h2>
+      <Plans cfg={cfg} save={save} />
       <div className="a-card">
-        <h2>Live configuration</h2>
-        <p className="a-muted" style={{ marginTop: 0 }}>Changes apply to the bot within about 30 seconds. Rewards, prices, fees, bonuses, limits and links all live here.</p>
+        <h2>Other settings</h2>
+        <p className="a-muted" style={{ marginTop: 0 }}>Changes apply to the bot within about 30 seconds. Fees, limits, switches and links live here.</p>
         <Node path="" value={cfg} onSave={save} root />
       </div>
       <History onDone={reload} />

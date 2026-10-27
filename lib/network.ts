@@ -19,7 +19,7 @@ export type CampaignDoc = {
   buttons: { text: string; url: string }[]; pin: boolean; deleteAfterHours: number; releaseAfterHours: number;
   bonus: BonusRule; target: TargetSpec; status: "pending_approval" | "scheduled" | "running" | "done" | "cancelled";
   scheduledAt: number | null; createdBy: number; createdAt: number; approvedBy: number | null;
-  queue: number[]; resumeAt: number;
+  queue: number[]; resumeAt: number; lastErrors?: { chatId: number; error: string }[];
   totals: { targets: number; sent: number; failed: number; bonusPromised: number; bonusPaid: number; starts: number; verified: number };
 };
 
@@ -34,37 +34,71 @@ export function calcBonus(rule: BonusRule, members: number) {
   return round(b);
 }
 
-export function isEligible(c: ChatDoc, spec: TargetSpec, cfg: AppConfig, today = dayKey(Date.now())) {
-  if (c.status !== "active" || !c.botAdmin || !c.ads.enabled || c.blacklisted) return false;
-  if (c.type === "channel" && !c.rights.canPost) return false;
-  if (c.memberCount < Math.max(spec.minMembers ?? 0, cfg.network.minMembers)) return false;
-  if (spec.types?.length && !spec.types.includes(c.type)) return false;
-  if (spec.tags?.length && !spec.tags.some((t) => c.tags.includes(t))) return false;
-  if (spec.exclude?.includes(c.id)) return false;
-  if (spec.mode === "ids" && !spec.ids?.includes(c.id)) return false;
+/** Why a chat can NOT receive a post right now (null = it can). Used for both sending and the admin explanations. */
+export function whyNot(c: ChatDoc, spec: TargetSpec, cfg: AppConfig, today = dayKey(Date.now())): string | null {
+  if (c.status !== "active") return "removed from the bot";
+  if (!c.botAdmin) return "bot is not an admin there";
+  if (c.blacklisted) return "blacklisted";
+  if (!c.ads.enabled) return "owner has not turned on sponsored posts";
+  if (c.type === "channel" && !c.rights.canPost) return "bot can't post in this channel";
+  const min = Math.max(spec.minMembers ?? 0, cfg.network.minMembers);
+  if (c.memberCount < min) return `under ${min} members`;
+  if (spec.types?.length && !spec.types.includes(c.type)) return "filtered out by type";
+  if (spec.tags?.length && !spec.tags.some((t) => c.tags.includes(t))) return "filtered out by tag";
+  if (spec.exclude?.includes(c.id)) return "excluded";
+  if (spec.mode === "ids" && !spec.ids?.includes(c.id)) return "not in your selection";
   const postsToday = c.ads.postsDay === today ? c.ads.postsToday : 0;
-  return postsToday < c.ads.maxPerDay;
+  if (postsToday >= c.ads.maxPerDay) return `daily limit reached (${c.ads.maxPerDay}/day)`;
+  return null;
 }
 
-/** Chats that can be posted to right now. Owners must be verified, unbanned users. */
-export async function resolveTargets(spec: TargetSpec) {
+export const isEligible = (c: ChatDoc, spec: TargetSpec, cfg: AppConfig, today = dayKey(Date.now())) =>
+  whyNot(c, spec, cfg, today) === null;
+
+/** Splits every registered chat into "can receive" and a count per reason it can't. */
+export async function analyze(spec: TargetSpec) {
   const cfg = await getConfig();
-  const snap = await chatsCol().where("status", "==", "active").where("ads.enabled", "==", true).limit(3000).get();
-  const list = snap.docs.map((d) => withChatDefaults(d.data())).filter((c) => isEligible(c, spec, cfg));
-  const ownerIds = [...new Set(list.map((c) => c.ownerId).filter((x): x is number => !!x))];
+  const snap = await chatsCol().where("status", "==", "active").limit(3000).get();
+  const chats = snap.docs.map((d) => withChatDefaults(d.data()));
+  const excluded: Record<string, number> = {};
+  const candidates: ChatDoc[] = [];
+  for (const c of chats) {
+    const why = whyNot(c, spec, cfg);
+    if (why) excluded[why] = (excluded[why] || 0) + 1;
+    else candidates.push(c);
+  }
+  const ownerIds = [...new Set(candidates.map((c) => c.ownerId).filter((x): x is number => !!x))];
   const ok = new Set<number>();
   for (let i = 0; i < ownerIds.length; i += 300) {
     const docs = await getDb().getAll(...ownerIds.slice(i, i + 300).map((id) => usersCol().doc(String(id))));
     docs.forEach((d) => { if (d.exists) { const u = withDefaults(d.data()); if (u.verified && !u.banned) ok.add(u.id); } });
   }
-  return list.filter((c) => c.ownerId && ok.has(c.ownerId));
+  const eligible: ChatDoc[] = [];
+  for (const c of candidates) {
+    if (c.ownerId && ok.has(c.ownerId)) eligible.push(c);
+    else excluded["owner is not a verified user"] = (excluded["owner is not a verified user"] || 0) + 1;
+  }
+  return { eligible, excluded, registered: chats.length };
+}
+
+/** Chats that can be posted to right now. */
+export async function resolveTargets(spec: TargetSpec) {
+  return (await analyze(spec)).eligible;
 }
 
 export async function estimate(spec: TargetSpec, rule: BonusRule) {
-  const list = await resolveTargets(spec);
-  const total = round(list.reduce((s, c) => s + calcBonus(rule, c.memberCount), 0));
-  return { count: list.length, totalBonus: total, members: list.reduce((s, c) => s + c.memberCount, 0), sample: list.slice(0, 5).map((c) => c.title) };
+  const { eligible, excluded, registered } = await analyze(spec);
+  const total = round(eligible.reduce((s, c) => s + calcBonus(rule, c.memberCount), 0));
+  return {
+    count: eligible.length, totalBonus: total, members: eligible.reduce((s, c) => s + c.memberCount, 0),
+    sample: eligible.slice(0, 5).map((c) => c.title), excluded, registered,
+  };
 }
+
+export const explainExcluded = (ex: Record<string, number>, registered: number) =>
+  registered === 0
+    ? "No chats are registered yet (open Network, Chats, and import or re-add the bot)."
+    : Object.entries(ex).sort((a, b) => b[1] - a[1]).map(([why, n]) => `${n} ${why}`).join("; ") || "unknown";
 
 export type NewCampaign = {
   title: string; text: string; photoUrl?: string | null; buttons: { text: string; url: string }[]; pin: boolean;
@@ -79,8 +113,11 @@ export async function createCampaign(adminId: number, n: NewCampaign) {
     if (!b.text.trim() || !(b.url === "{BOT}" || /^https:\/\/\S+$/.test(b.url))) throw new Error("Buttons need a label and an https:// link (or {BOT}).");
   }
   const scheduled = n.scheduledAt && n.scheduledAt > Date.now() + 30_000 ? n.scheduledAt : null;
-  const queue = scheduled ? [] : (await resolveTargets(n.target)).map((c) => c.id);
   const est = scheduled ? null : await estimate(n.target, n.bonus);
+  if (est && est.count === 0) {
+    throw new Error(`No chat can receive this post right now. ${explainExcluded(est.excluded, est.registered)}.`);
+  }
+  const queue = scheduled ? [] : (await resolveTargets(n.target)).map((c) => c.id);
   const needsApproval = !!est && est.totalBonus > cfg.network.approvalAbove;
 
   const ref = campaigns().doc();
@@ -171,15 +208,17 @@ export async function runCampaign(id: string, deadline: number): Promise<boolean
 
   let queue = [...c.queue];
   let sent = 0, failed = 0, rateLimited = 0;
+  const errors: { chatId: number; error: string }[] = [];
 
   while (queue.length && Date.now() < deadline - 2500) {
     const batch = queue.splice(0, 20);
     const started = Date.now();
     await Promise.all(batch.map(async (chatId) => {
       const docSnap = await chatsCol().doc(String(chatId)).get();
-      if (!docSnap.exists) { failed++; return; }
+      if (!docSnap.exists) { failed++; errors.push({ chatId, error: "chat is no longer registered" }); return; }
       const chat = withChatDefaults(docSnap.data());
-      if (!isEligible(chat, { ...c.target, mode: "all" }, cfg)) { failed++; return; }
+      const why = whyNot(chat, { ...c.target, mode: "all" }, cfg);
+      if (why) { failed++; errors.push({ chatId, error: `skipped: ${why}` }); return; }
       try {
         await sendOne(c, chat, cfg);
         sent++;
@@ -190,6 +229,7 @@ export async function runCampaign(id: string, deadline: number): Promise<boolean
         } else {
           failed++;
           const msg = String((e as Error).message);
+          errors.push({ chatId, error: msg.slice(0, 180) });
           if (/chat not found|kicked|forbidden|not enough rights|have no rights/i.test(msg)) {
             await chatsCol().doc(String(chatId)).update({ botAdmin: false, updatedAt: Date.now() }).catch(() => {});
           }
@@ -204,6 +244,7 @@ export async function runCampaign(id: string, deadline: number): Promise<boolean
   const done = queue.length === 0;
   await ref.update({
     queue, status: done ? "done" : "running", resumeAt: rateLimited ? Date.now() + rateLimited * 1000 : 0,
+    ...(errors.length ? { lastErrors: errors.slice(0, 5) } : {}),
     "totals.sent": FieldValue.increment(sent), "totals.failed": FieldValue.increment(failed),
   });
   if (done) {
@@ -316,4 +357,17 @@ export async function netStart(deliveryId: string, verified = false) {
   } catch (e) {
     console.error("netStart", e);
   }
+}
+
+/** Admin test: post the draft into one specific chat right now, ignoring eligibility. Not recorded, no bonus. */
+export async function testPost(chatId: number, c: Pick<NewCampaign, "text" | "photoUrl" | "buttons">) {
+  const cfg = await getConfig();
+  const snap = await chatsCol().doc(String(chatId)).get();
+  const botId = snap.exists ? (snap.data() as { botId?: string }).botId : undefined;
+  const api = await apiFor(botId);
+  const user = await botUsername(botId);
+  const markup = { inline_keyboard: c.buttons.map((b) => [{ text: b.text, url: b.url === "{BOT}" ? `https://t.me/${user}` : b.url }]) };
+  const text = `[TEST] ${cfg.network.sponsoredLabel}\n\n${c.text}`;
+  if (c.photoUrl) await api.sendPhoto(chatId, c.photoUrl, { caption: text.slice(0, 1024), reply_markup: markup });
+  else await api.sendMessage(chatId, text, { reply_markup: markup, link_preview_options: { is_disabled: true } });
 }

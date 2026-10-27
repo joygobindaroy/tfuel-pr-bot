@@ -69,6 +69,8 @@ function Chats({ selected, setSelected, goCompose }: { selected: number[]; setSe
                     {c.status !== "active" && <Chip kind="bad">removed</Chip>}
                     {c.blacklisted && <Chip kind="bad">blacklisted</Chip>}
                     {c.mandatory && <Chip kind="info">mandatory sub</Chip>}
+                    {c.blocker && c.status === "active" && <Chip kind="warn">won't get posts: {c.blocker}</Chip>}
+                    {!c.blocker && c.status === "active" && <Chip kind="good">ready for posts</Chip>}
                     {c.tags.map((t: string) => <Chip key={t}>{t}</Chip>)}
                   </div></td>
                 <td className="mono">{fmt(c.memberCount)}</td>
@@ -98,6 +100,7 @@ function Compose({ selected, onCreated }: { selected: number[]; onCreated: () =>
   });
   const [buttons, setButtons] = useState<{ text: string; url: string }[]>([{ text: "Open the bot", url: "{BOT}" }]);
   const [est, setEst] = useState<any>(null);
+  const [testChat, setTestChat] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
 
@@ -194,9 +197,28 @@ function Compose({ selected, onCreated }: { selected: number[]; onCreated: () =>
                 <div><div className="mono" style={{ fontSize: 22 }}>{fmt(est.totalBonus)}</div><div className="a-muted">bonus promised</div></div>
               </div>
               {est.needsApproval && <p style={{ margin: "10px 0 0" }}><Chip kind="warn">needs a second super admin</Chip></p>}
+              {est.count === 0 && (
+                <p className="a-neg" style={{ margin: "10px 0 0" }}>
+                  {est.registered === 0 ? "No chats are registered yet. Open Chats and import them." : `${est.registered} chat(s) are registered but none can receive this post.`}
+                </p>
+              )}
+              {Object.keys(est.excluded || {}).length > 0 && (
+                <div style={{ margin: "10px 0 0" }}>
+                  <div className="a-muted" style={{ marginBottom: 4 }}>Skipped, and why:</div>
+                  {Object.entries(est.excluded as Record<string, number>).sort((a, b) => b[1] - a[1]).map(([why, n]) => (
+                    <div key={why} className="row" style={{ padding: "3px 0" }}><span>{why}</span><strong className="mono">{n}</strong></div>
+                  ))}
+                </div>
+              )}
               {est.sample.length > 0 && <p className="a-muted" style={{ margin: "10px 0 0" }}>e.g. {est.sample.join(", ")}</p>}
             </div>
           )}
+          <Field label="Test in one chat (ignores the rules, no bonus): chat id">
+            <div className="a-search" style={{ marginBottom: 0 }}>
+              <input className="a-in mono" value={testChat} onChange={(e) => setTestChat(e.target.value)} placeholder="-1001234567890" />
+              <button className="a-btn" onClick={() => run(() => act("net_test_chat", { campaign: build(), chatId: testChat.trim() }))}>Send test</button>
+            </div>
+          </Field>
           <div className="a-actions">
             <button className="a-btn" disabled={busy} onClick={estimate}>Estimate</button>
             <button className="a-btn" onClick={() => run(() => act("net_test", { campaign: build() }))}>Send test to me</button>
@@ -234,6 +256,12 @@ function Campaigns({ meId }: { meId: number }) {
               <dt>Bonus paid / promised</dt><dd className="mono">{fmt(t.bonusPaid)} / {fmt(t.bonusPromised)}</dd>
               <dt>Bot starts / verified</dt><dd className="mono">{t.starts} / {t.verified}{t.verified > 0 && t.bonusPaid > 0 ? ` · ${fmt(t.bonusPaid / t.verified)} per verified user` : ""}</dd>
             </dl>
+            {c.lastErrors?.length > 0 && (
+              <div className="a-card" style={{ background: "var(--raised)", marginTop: 10, padding: 12 }}>
+                <div className="a-muted" style={{ marginBottom: 4 }}>Why some posts were not delivered:</div>
+                {c.lastErrors.map((e: any, i: number) => <div key={i} style={{ fontSize: 13 }}><span className="mono a-muted">{e.chatId}</span> {e.error}</div>)}
+              </div>
+            )}
             <div className="a-actions" style={{ marginTop: 12 }}>
               {c.status === "pending_approval" && (c.createdBy === meId
                 ? <span className="a-muted">Waiting for another super admin to approve.</span>

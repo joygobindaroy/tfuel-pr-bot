@@ -59,6 +59,9 @@ All defaults are in `lib/config.ts`.
 5. Request method GET. Save.
 6. In the admin panel open **System**: it should say "running" within two minutes. The **Run now** button there runs one tick by hand to test.
 
+## Why a network post might not arrive
+A post goes only to chats that pass every rule: the bot is admin there, the owner is a verified user and turned on sponsored posts (More, My chats), the chat has at least `network.minMembers` members (default 100, lower it in Settings to test), and it has not reached its daily limit. The Network page shows the reason next to every chat and, when you estimate a post, a list of why chats were skipped. A campaign with zero eligible chats is now refused instead of reported as started. "Create and send" delivers the first batch immediately and tells you how many chats really received it; use "Send test" with a chat id to check that the bot can post in one chat.
+
 ## Promote payments
 The promoter sets the reward per action (minimum and recommended are shown; higher rewards are shown to workers first), picks a count (quick buttons, including the maximum the balance allows), then chooses to pay from balance or directly in Telegram Stars (`tasks.starsDiscountPct` cheaper). A Stars payment becomes a deposit that is spent on the task at once; if the task cannot start, the value is credited to the balance instead.
 

@@ -1,5 +1,5 @@
 import { listBots } from "@/lib/bots";
-import { estimate, type BonusRule, type TargetSpec } from "@/lib/network";
+import { estimate, whyNot, type BonusRule, type TargetSpec } from "@/lib/network";
 import { chatsCol, withChatDefaults } from "@/lib/chats";
 import { getConfig } from "@/lib/config";
 import { getDb } from "@/lib/firebase";
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
         return ok({
           chats: list.slice(0, 250).map((c) => ({
             id: c.id, type: c.type, title: c.title, username: c.username, memberCount: c.memberCount, ownerId: c.ownerId,
-            status: c.status, botAdmin: c.botAdmin, adsEnabled: c.ads.enabled, maxPerDay: c.ads.maxPerDay, postsToday: c.ads.postsDay === new Date().toISOString().slice(0, 10) ? c.ads.postsToday : 0,
+            status: c.status, botAdmin: c.botAdmin, blocker: whyNot(c, { mode: "all" }, cfg), adsEnabled: c.ads.enabled, maxPerDay: c.ads.maxPerDay, postsToday: c.ads.postsDay === new Date().toISOString().slice(0, 10) ? c.ads.postsToday : 0,
             earned: c.earned, tags: c.tags, blacklisted: c.blacklisted, canPost: c.rights.canPost, mandatory: c.mandatory.enabled, botId: c.botId,
           })),
           total: list.length, minMembers: cfg.network.minMembers, approvalAbove: cfg.network.approvalAbove, currency: cfg.currency,
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
         if (!can(role, "network")) return deny();
         const s = await db.collection("net_campaigns").orderBy("createdAt", "desc").limit(15).get();
         return ok({
-          campaigns: s.docs.map((d) => { const x = d.data(); return { id: d.id, title: x.title, text: x.text, status: x.status, createdBy: x.createdBy, createdAt: x.createdAt, scheduledAt: x.scheduledAt, totals: x.totals, bonus: x.bonus, queued: (x.queue || []).length }; }),
+          campaigns: s.docs.map((d) => { const x = d.data(); return { id: d.id, title: x.title, text: x.text, lastErrors: x.lastErrors ?? [], status: x.status, createdBy: x.createdBy, createdAt: x.createdAt, scheduledAt: x.scheduledAt, totals: x.totals, bonus: x.bonus, queued: (x.queue || []).length }; }),
         });
       }
 

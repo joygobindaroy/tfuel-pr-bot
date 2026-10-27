@@ -4,7 +4,7 @@ import { depositQuote, usdtQuote } from "../lib/payments";
 import { levelFor } from "../lib/users";
 import { validSegment } from "../lib/broadcast";
 import { makeCaptcha } from "../lib/captcha";
-import { calcBonus, isEligible } from "../lib/network";
+import { calcBonus, explainExcluded, isEligible, whyNot } from "../lib/network";
 import { taskPrice } from "../lib/tasks";
 import { quote, starsFor } from "../lib/taskpay";
 import { rights } from "../lib/picker";
@@ -229,5 +229,23 @@ describe("owner-set task price and Stars payment", () => {
     const q = quote({ type: "channel", chatId: 1, username: "x", title: "t", link: "l", premiumOnly: false, reward: 50, count: 100, countries: [], dailyBudget: 0, startAt: 0 }, cfg);
     expect(q.total).toBe(6000);
     expect(q.stars).toBe(starsFor(6000, cfg));
+  });
+});
+
+describe("why a chat is skipped", () => {
+  const spec = { mode: "all" as const };
+  it("names the first blocking reason", () => {
+    expect(whyNot(chat({ ads: { ...chat().ads, enabled: false } }), spec, cfg)).toMatch(/not turned on/);
+    expect(whyNot(chat({ memberCount: 10 }), spec, cfg)).toBe("under 100 members");
+    expect(whyNot(chat({ botAdmin: false }), spec, cfg)).toMatch(/not an admin/);
+    expect(whyNot(chat(), spec, cfg)).toBeNull();
+  });
+  it("reports the daily limit", () => {
+    const c = chat({ ads: { ...chat().ads, postsDay: "2026-10-24", postsToday: 1 } });
+    expect(whyNot(c, spec, cfg, "2026-10-24")).toMatch(/daily limit/);
+  });
+  it("explains an empty audience in words", () => {
+    expect(explainExcluded({}, 0)).toMatch(/No chats are registered/);
+    expect(explainExcluded({ "under 100 members": 2, "owner has not turned on sponsored posts": 5 }, 7)).toBe("5 owner has not turned on sponsored posts; 2 under 100 members");
   });
 });
