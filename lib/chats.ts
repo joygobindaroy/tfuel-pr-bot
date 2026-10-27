@@ -4,7 +4,7 @@ import { getConfig } from "./config";
 import { getDb } from "./firebase";
 import { sendToUser } from "./notify";
 import { forgetSubscription } from "./mandatory";
-import { leaveNow } from "./tasks";
+import { leaveNow, restoreOnRejoin } from "./tasks";
 import { getUser, usersCol } from "./users";
 
 export type ChatKind = "channel" | "supergroup" | "group";
@@ -186,12 +186,17 @@ export function registerOptIn(bot: Bot) {
 export const memberLeft = (m: { status: string; is_member?: boolean }) =>
   m.status === "left" || m.status === "kicked" || (m.status === "restricted" && !m.is_member);
 
-/** Someone joined or left a chat where the bot is admin. We only care about leaving. */
+export const memberJoined = (m: { status: string; is_member?: boolean }) =>
+  m.status === "member" || m.status === "administrator" || m.status === "creator" || (m.status === "restricted" && !!m.is_member);
+
+/** Someone joined or left a chat where the bot is admin. */
 export async function onChatMember(ctx: Context) {
   const u = ctx.chatMember;
   if (!u) return;
   const m = u.new_chat_member as { status: string; is_member?: boolean; user: { id: number; is_bot: boolean } };
-  if (!memberLeft(m) || m.user.is_bot) return;
+  if (m.user.is_bot) return;
+  if (memberJoined(m)) { await restoreOnRejoin(u.chat.id, m.user.id); return; }
+  if (!memberLeft(m)) return;
   forgetSubscription(u.chat.id, m.user.id);
   await leaveNow(u.chat.id, m.user.id);
 }

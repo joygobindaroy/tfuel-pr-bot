@@ -4,7 +4,7 @@ import { makeCaptcha } from "../captcha";
 import { getConfig } from "../config";
 import { L } from "../labels";
 import { action } from "./actions";
-import { completeTask, countActive, findTasks, getTask, membership, pauseTaskFatal, reportTask, type TaskType } from "../tasks";
+import { completeTask, countActive, findTasks, getTask, membership, pauseTaskFatal, reportTask, restoreFromGrace, type TaskType } from "../tasks";
 import { fmt, show } from "../ui";
 import { getUser, levelFor, usersCol } from "../users";
 
@@ -108,6 +108,22 @@ export function registerEarn(bot: Bot) {
     await ctx.answerCallbackQuery({ text: `+${fmt(r.payout)} ${cfg.currency}` });
     void notifyAchievements(ctx.from.id);
     await showTask(ctx, task.type);
+  });
+
+  /* "Check again" from the leave warning */
+  bot.callbackQuery(/^lv:(\w+)$/, async (ctx) => {
+    const r = await restoreFromGrace(ctx.match[1], ctx.from.id);
+    if (r === "restored") {
+      await ctx.answerCallbackQuery({ text: "✅ Welcome back! Your reward is safe." });
+      await ctx.editMessageText("✅ You're subscribed again. Your reward is safe. Stay for the full period to keep it.").catch(() => {});
+    } else if (r === "still_left") {
+      await ctx.answerCallbackQuery({ text: "You haven't joined yet. Tap Subscribe again, join, then press Check again.", show_alert: true });
+    } else if (r === "error") {
+      await ctx.answerCallbackQuery({ text: "Can't check right now. Try again in a minute.", show_alert: true });
+    } else {
+      await ctx.answerCallbackQuery({ text: "This request is no longer active.", show_alert: true });
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    }
   });
 
   bot.callbackQuery(/^trep:(\w+)$/, async (ctx) => {

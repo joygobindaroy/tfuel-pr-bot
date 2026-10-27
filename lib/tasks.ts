@@ -1,6 +1,7 @@
 import { FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { notifyAdmins } from "./botInstance";
 import { apiFor } from "./bots";
+import { leaveWarning } from "./leave";
 import { sendToUser } from "./notify";
 import { getConfig, type AppConfig } from "./config";
 import { getDb } from "./firebase";
@@ -340,7 +341,7 @@ export async function applyLeave(compId: string) {
   const cref = compCol().doc(compId);
   const out = await getDb().runTransaction(async (t) => {
     const cs = await t.get(cref);
-    if (!cs.exists || cs.data()!.status !== "active") return null;
+    if (!cs.exists || !["active", "grace"].includes(cs.data()!.status)) return null;
     const c = cs.data() as { taskId: string; userId: number; payout: number; cost: number; title: string };
     const tref = tasksCol().doc(c.taskId);
     const uref = usersCol().doc(String(c.userId));
@@ -348,7 +349,7 @@ export async function applyLeave(compId: string) {
     const user = withDefaults(us.data());
     const penalty = Math.min(user.balance, round(c.payout * cfg.tasks.penaltyMultiplier));
 
-    t.update(cref, { status: "left", nextCheckAt: FieldValue.delete(), leftAt: Date.now(), penalty });
+    t.update(cref, { status: "left", nextCheckAt: FieldValue.delete(), graceUntil: FieldValue.delete(), leftAt: Date.now(), penalty });
     t.update(uref, { balance: round(user.balance - penalty), penalties: FieldValue.increment(1) });
     if (penalty > 0) {
       t.set(ledger(c.userId).doc(), {
@@ -374,7 +375,7 @@ export async function applyLeave(compId: string) {
   void incStats({ revenue: out.penalty - out.cost, penalties: 1, leaves: 1 });
   await sendToUser(
     out.userId,
-    `⚠️ You left "${out.title}" before ${cfg.tasks.retentionDays} days. Penalty: -${out.penalty} ${cfg.currency}. Stay subscribed to keep your rewards.`
+    `⛔ You didn't rejoin "${out.title}" in time.\n${out.penalty} ${cfg.currency} was taken from your balance. Stay subscribed for ${cfg.tasks.retentionDays} days to keep your rewards.`
   );
 }
 
@@ -386,7 +387,7 @@ async function handleCompletion(d: QueryDocumentSnapshot, retentionMs: number) {
       if (m.fatal) await pauseTaskFatal(c.taskId);
       await d.ref.update({ nextCheckAt: Date.now() + 6 * 3600_000 });
     } else if (m.status === "left") {
-      await applyLeave(d.id);
+      await startGrace(d.id);
     } else if (Date.now() >= c.joinedAt + retentionMs) {
       await d.ref.update({ status: "retained", nextCheckAt: FieldValue.delete() });
     } else {
@@ -429,6 +430,74 @@ export async function leaveNow(chatId: number, userId: number) {
       await d.ref.update({ status: "retained", nextCheckAt: FieldValue.delete() });
       continue;
     }
-    await applyLeave(d.id);
+    await startGrace(d.id);
   }
+}
+
+/* ---------- grace period: warn, let them rejoin, cut only if they don't ---------- */
+
+/** First detection of a leave: pause the penalty, tell the worker how to fix it. */
+export async function startGrace(compId: string) {
+  const cfg = await getConfig();
+  const cref = compCol().doc(compId);
+  const c = await getDb().runTransaction(async (t) => {
+    const s = await t.get(cref);
+    if (!s.exists || s.data()!.status !== "active") return null;
+    t.update(cref, { status: "grace", graceAt: Date.now(), graceUntil: Date.now() + cfg.tasks.graceHours * 3_600_000, nextCheckAt: FieldValue.delete() });
+    return s.data() as { taskId: string; userId: number; payout: number; title: string };
+  });
+  if (!c) return;
+  const task = await getTask(c.taskId);
+  const w = leaveWarning({
+    title: c.title, payout: c.payout, penalty: round(c.payout * cfg.tasks.penaltyMultiplier), currency: cfg.currency,
+    retentionDays: cfg.tasks.retentionDays, graceHours: cfg.tasks.graceHours, link: task?.link ?? "", compId,
+  });
+  await sendToUser(c.userId, w.text, { parse_mode: "HTML", reply_markup: w.kb, link_preview_options: { is_disabled: true } });
+}
+
+/** "Check again" pressed: if they are back in the chat the reward stays and monitoring resumes. */
+export async function restoreFromGrace(compId: string, userId: number): Promise<"restored" | "still_left" | "invalid" | "error"> {
+  const cref = compCol().doc(compId);
+  const s = await cref.get();
+  const c = s.data() as { userId: number; status: string; chatId: number; botId?: string } | undefined;
+  if (!c || c.userId !== userId || c.status !== "grace") return "invalid";
+  const m = await membership(c.chatId, userId, c.botId);
+  if (m.status === "error") return "error";
+  if (m.status !== "member") return "still_left";
+  await cref.update({ status: "active", graceUntil: FieldValue.delete(), nextCheckAt: Date.now() + 3_600_000, rejoinedAt: Date.now() });
+  return "restored";
+}
+
+/** Telegram says someone (re)joined: if they were in a grace period for that chat, restore them on the spot. */
+export async function restoreOnRejoin(chatId: number, userId: number) {
+  const snap = await compCol().where("chatId", "==", chatId).where("userId", "==", userId).limit(10).get();
+  for (const d of snap.docs) {
+    const c = d.data() as { status: string; title: string };
+    if (c.status !== "grace") continue;
+    await d.ref.update({ status: "active", graceUntil: FieldValue.delete(), nextCheckAt: Date.now() + 3_600_000, rejoinedAt: Date.now() });
+    await sendToUser(userId, `✅ Welcome back to ${c.title}. Your reward is safe.`);
+  }
+}
+
+/** Grace periods that ran out: restore if they quietly came back, otherwise apply the penalty. */
+export async function processGrace(deadline: number) {
+  const snap = await compCol().where("graceUntil", "<=", Date.now()).limit(50).get();
+  let n = 0;
+  for (const d of snap.docs) {
+    if (Date.now() > deadline) break;
+    const c = d.data() as { chatId: number; userId: number; botId?: string; title: string };
+    try {
+      const m = await membership(c.chatId, c.userId, c.botId);
+      if (m.status === "error") { await d.ref.update({ graceUntil: Date.now() + 3_600_000 }); }
+      else if (m.status === "member") {
+        await d.ref.update({ status: "active", graceUntil: FieldValue.delete(), nextCheckAt: Date.now() + 3_600_000, rejoinedAt: Date.now() });
+        await sendToUser(c.userId, `✅ Welcome back to ${c.title}. Your reward is safe.`);
+      } else await applyLeave(d.id);
+    } catch (e) {
+      console.error("grace item failed", d.id, e);
+      await d.ref.update({ graceUntil: Date.now() + 3_600_000 }).catch(() => {});
+    }
+    n++;
+  }
+  return { processed: n, more: snap.size >= 50 };
 }

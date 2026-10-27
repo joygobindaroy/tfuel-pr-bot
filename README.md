@@ -51,13 +51,15 @@ All defaults are in `lib/config.ts`.
 - Requirements: the bot must be **admin** in that chat, and the webhook must include `chat_member`. After deploying this version open the admin panel, **Bots, Re-register webhook** (once per bot).
 - Mandatory subscription: the "is subscribed" result is cached for 3 minutes (`mandatory.cacheMinutes`) and cleared immediately when Telegram reports the person left.
 
-## Cron job in 6 steps (cron-job.org)
-1. Find your secret: Vercel project, Settings, Environment Variables, `CRON_SECRET` (click the eye icon and copy it). Never paste it in a chat.
-2. Open cron-job.org, sign up, press **Create cronjob**.
-3. URL: `https://YOUR-APP.vercel.app/api/cron/tick`. Schedule: every 1 minute.
-4. Open the **Advanced** section. Add a request header: name `Authorization`, value `Bearer ` followed by the secret (one space after Bearer).
-5. Request method GET. Save.
-6. In the admin panel open **System**: it should say "running" within two minutes. The **Run now** button there runs one tick by hand to test.
+## Cron job in 4 steps (cron-job.org)
+1. Copy your secret: Vercel project, Settings, Environment Variables, `CRON_SECRET` (click the eye icon).
+2. cron-job.org, **Create cronjob**.
+3. URL: `https://YOUR-APP.vercel.app/api/cron?key=YOUR_CRON_SECRET`  Schedule: every 1 minute. Nothing else to fill in.
+4. Save. In the admin panel open **System**: it should say "running" within two minutes. **Run now** there tests it by hand.
+(The older `/api/cron/tick` path and the `Authorization: Bearer` header still work.)
+
+## Leaving a task chat
+When a worker leaves a channel or group inside the retention window, they get a message with **Subscribe again** (link) and **Check again** buttons. If they rejoin (and press Check again, or Telegram reports the join) the reward stays. If `tasks.graceHours` (default 6) pass without them coming back, the penalty is taken and the promoter's task is refilled.
 
 ## Why a network post might not arrive
 A post goes only to chats that pass every rule: the bot is admin there, the owner is a verified user and turned on sponsored posts (More, My chats), the chat has at least `network.minMembers` members (default 100, lower it in Settings to test), and it has not reached its daily limit. The Network page shows the reason next to every chat and, when you estimate a post, a list of why chats were skipped. A campaign with zero eligible chats is now refused instead of reported as started. "Create and send" delivers the first batch immediately and tells you how many chats really received it; use "Send test" with a chat id to check that the bot can post in one chat.

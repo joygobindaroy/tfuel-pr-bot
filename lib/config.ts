@@ -52,6 +52,7 @@ export const DEFAULT_CONFIG = {
     minActions: 10,
     maxActions: 100000,
     retentionDays: 7,
+    graceHours: 6, // time a worker has to rejoin (and press Check again) before the penalty is taken
     penaltyMultiplier: 1, // x payout taken back if the user leaves early
     captchaEvery: 10, // captcha after this many completed tasks
     autoPauseReports: 5,

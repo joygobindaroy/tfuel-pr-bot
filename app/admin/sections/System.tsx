@@ -11,7 +11,7 @@ export default function System() {
   const t = data.tick;
   const age = t ? Date.now() - t.at : Infinity;
 
-  const url = typeof window === "undefined" ? "" : `${window.location.origin}/api/cron/tick`;
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
   return (
     <>
       <div className="a-card">
@@ -34,14 +34,12 @@ export default function System() {
 
       <div className="a-card">
         <h2>Cron job setup (cron-job.org)</h2>
+        <p className="a-muted" style={{ marginTop: 0 }}>Create one cron job with this URL, every 1 minute. No headers needed.</p>
         <dl className="a-kv" style={{ gridTemplateColumns: "150px 1fr" }}>
-          <dt>URL</dt><dd className="mono" style={{ wordBreak: "break-all" }}>{url}</dd>
+          <dt>URL</dt><dd className="mono" style={{ wordBreak: "break-all" }}>{origin}/api/cron?key=<strong>YOUR_CRON_SECRET</strong></dd>
           <dt>Schedule</dt><dd>Every 1 minute</dd>
-          <dt>Request method</dt><dd>GET</dd>
-          <dt>Header name</dt><dd className="mono">Authorization</dd>
-          <dt>Header value</dt><dd className="mono">Bearer YOUR_CRON_SECRET</dd>
         </dl>
-        <p className="a-muted" style={{ marginBottom: 0 }}>YOUR_CRON_SECRET is the <span className="mono">CRON_SECRET</span> value from Vercel, Settings, Environment Variables. It is never shown here.</p>
+        <p className="a-muted" style={{ marginBottom: 0 }}>Replace YOUR_CRON_SECRET with the <span className="mono">CRON_SECRET</span> value from Vercel, Settings, Environment Variables. It is never shown here. Anyone who has the link can run the jobs, so don't share it.</p>
       </div>
 
       <div className="a-card" style={{ padding: 8 }}>

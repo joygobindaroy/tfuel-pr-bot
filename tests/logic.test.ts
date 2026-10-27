@@ -10,7 +10,9 @@ import { quote, starsFor } from "../lib/taskpay";
 import { rights } from "../lib/picker";
 import { allow, once } from "../lib/ratelimit";
 import { weekKey } from "../lib/leaderboard";
-import { memberLeft, type ChatDoc } from "../lib/chats";
+import { memberJoined, memberLeft, type ChatDoc } from "../lib/chats";
+import { leaveWarning } from "../lib/leave";
+import { isCronAuthorized } from "../lib/cronauth";
 import { L, LEGACY, MORE } from "../lib/labels";
 import { esc, mainMenu, moreMenu, welcomeText } from "../lib/ui";
 
@@ -247,5 +249,43 @@ describe("why a chat is skipped", () => {
   it("explains an empty audience in words", () => {
     expect(explainExcluded({}, 0)).toMatch(/No chats are registered/);
     expect(explainExcluded({ "under 100 members": 2, "owner has not turned on sponsored posts": 5 }, 7)).toBe("5 owner has not turned on sponsored posts; 2 under 100 members");
+  });
+});
+
+describe("leave warning message", () => {
+  const w = leaveWarning({ title: "<Tech> & Co", payout: 30, penalty: 30, currency: "TFUEL", retentionDays: 7, graceHours: 6, link: "https://t.me/x", compId: "abc" });
+  it("explains the penalty and the deadline, escaping the title", () => {
+    expect(w.text).toContain("&lt;Tech&gt; &amp; Co");
+    expect(w.text).toContain("6 hours");
+    expect(w.text).toContain("30 TFUEL");
+  });
+  it("has Subscribe again (url) and Check again (callback)", () => {
+    const rows = w.kb.inline_keyboard.flat() as { text: string; url?: string; callback_data?: string }[];
+    expect(rows.find((b) => b.url === "https://t.me/x")?.text).toMatch(/Subscribe again/);
+    expect(rows.find((b) => b.callback_data === "lv:abc")?.text).toMatch(/Check again/);
+  });
+  it("drops the link button when there is no link", () => {
+    const x = leaveWarning({ title: "t", payout: 1, penalty: 1, currency: "T", retentionDays: 7, graceHours: 1, link: "", compId: "z" });
+    expect(x.kb.inline_keyboard.flat().length).toBe(1);
+    expect(x.text).toContain("1 hour</b>");
+  });
+  it("recognises a rejoin", () => {
+    expect(memberJoined({ status: "member" })).toBe(true);
+    expect(memberJoined({ status: "left" })).toBe(false);
+    expect(memberJoined({ status: "restricted", is_member: true })).toBe(true);
+  });
+});
+
+describe("cron authorisation", () => {
+  const S = "s3cret-value";
+  it("accepts ?key=, Bearer and x-job-secret", () => {
+    expect(isCronAuthorized(new Request(`https://x.app/api/cron?key=${S}`), S)).toBe(true);
+    expect(isCronAuthorized(new Request("https://x.app/api/cron", { headers: { authorization: `Bearer ${S}` } }), S)).toBe(true);
+    expect(isCronAuthorized(new Request("https://x.app/api/cron", { headers: { "x-job-secret": S } }), S)).toBe(true);
+  });
+  it("rejects wrong or missing keys and an unset secret", () => {
+    expect(isCronAuthorized(new Request("https://x.app/api/cron?key=nope"), S)).toBe(false);
+    expect(isCronAuthorized(new Request("https://x.app/api/cron"), S)).toBe(false);
+    expect(isCronAuthorized(new Request(`https://x.app/api/cron?key=${S}`), "")).toBe(false);
   });
 });
