@@ -194,7 +194,7 @@ function PlanTable({ plan, cfg, save }: { plan: Plan; cfg: any; save: (path: str
   );
 }
 
-const TASK_TYPES: [string, string][] = [["channel", "Channel subscription"], ["group", "Group join"]];
+const TASK_TYPES: [string, string][] = [["channel", "Channel subscription"], ["group", "Group join"], ["post", "Post view"], ["bot", "Bot start (proof)"], ["reaction", "Reaction (proof)"]];
 
 function TaskPrices({ cfg, save }: { cfg: any; save: (path: string, value: unknown) => Promise<boolean> }) {
   const toast = useToast();

@@ -13,6 +13,10 @@ import { weekKey } from "../lib/leaderboard";
 import { memberJoined, memberLeft, type ChatDoc } from "../lib/chats";
 import { leaveWarning } from "../lib/leave";
 import { isCronAuthorized } from "../lib/cronauth";
+import { dropUndefined } from "../lib/clean";
+import { parseBotRef, parsePostLink } from "../lib/parse";
+import { PROOF_TYPES, RETAINED_TYPES } from "../lib/tasks";
+import { REJECT_REASONS } from "../lib/proofs";
 import { L, LEGACY, MORE } from "../lib/labels";
 import { esc, mainMenu, moreMenu, welcomeText } from "../lib/ui";
 
@@ -288,4 +292,39 @@ describe("cron authorisation", () => {
     expect(isCronAuthorized(new Request("https://x.app/api/cron"), S)).toBe(false);
     expect(isCronAuthorized(new Request(`https://x.app/api/cron?key=${S}`), "")).toBe(false);
   });
+});
+
+describe("firestore-safe objects", () => {
+  it("drops undefined values that would crash a Firestore write", () => {
+    const o = dropUndefined({ a: 1, b: undefined, c: { d: undefined, e: "x" }, f: [1, undefined] });
+    expect(o).toEqual({ a: 1, c: { e: "x" }, f: [1, null] });
+    expect(JSON.stringify(o)).not.toContain("undefined");
+  });
+});
+
+describe("post, bot and reaction tasks", () => {
+  it("parses bot references", () => {
+    expect(parseBotRef("@MyShop_bot")).toEqual({ username: "MyShop_bot", link: "https://t.me/MyShop_bot" });
+    expect(parseBotRef("https://t.me/shopbot?start=ref123")).toEqual({ username: "shopbot", link: "https://t.me/shopbot?start=ref123" });
+    expect(parseBotRef("t.me/shopbot")?.username).toBe("shopbot");
+    expect(parseBotRef("@notabotname")).toBeNull();
+    expect(parseBotRef("hello world")).toBeNull();
+  });
+  it("parses post links", () => {
+    expect(parsePostLink("https://t.me/techgedr/45")).toEqual({ link: "https://t.me/techgedr/45", messageId: 45 });
+    expect(parsePostLink("https://t.me/c/123456/7")?.link).toBe("https://t.me/c/123456/7");
+    expect(parsePostLink("https://t.me/techgedr")).toBeNull();
+    expect(parsePostLink("https://example.com/a/1")).toBeNull();
+  });
+  it("sorts kinds into retained, proof and instant", () => {
+    expect(RETAINED_TYPES).toEqual(["channel", "group"]);
+    expect(PROOF_TYPES).toEqual(["bot", "reaction"]);
+    expect([...RETAINED_TYPES, ...PROOF_TYPES]).not.toContain("post");
+  });
+  it("prices the new kinds from config", () => {
+    expect(taskPrice("post", cfg).reward).toBe(3);
+    expect(taskPrice("bot", cfg, { premium: true }).reward).toBe(70);
+    expect(taskPrice("reaction", cfg, { reward: 20 })).toMatchObject({ reward: 20, commission: 4, cost: 24 });
+  });
+  it("offers three rejection reasons", () => expect(REJECT_REASONS).toHaveLength(3));
 });

@@ -47,6 +47,7 @@ export default function Dashboard({ go }: { go: (tab: string, arg?: string) => v
           <div className="a-stat"><div className="v">{fmt(d.users.verified)}</div><div className="l">Verified</div></div></>}
         {d.attention && <>
           <button className={`a-stat ${d.attention.openTickets ? "alert" : ""}`} onClick={() => go("tickets")}><div className="v">{d.attention.openTickets}</div><div className="l">Open tickets</div></button>
+          <button className={`a-stat ${d.attention.disputes ? "alert" : ""}`} onClick={() => go("disputes")}><div className="v">{d.attention.disputes ?? 0}</div><div className="l">Open disputes</div></button>
           <button className={`a-stat ${d.attention.reportedTasks ? "alert" : ""}`} onClick={() => go("tasks", "reported")}><div className="v">{d.attention.reportedTasks}</div><div className="l">Reported tasks</div></button>
           <div className="a-stat"><div className="v">{d.attention.banned}</div><div className="l">Banned users</div></div>
         </>}

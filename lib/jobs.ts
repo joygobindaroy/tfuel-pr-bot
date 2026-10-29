@@ -1,8 +1,10 @@
 import { runBroadcast, runningBroadcast } from "./broadcast";
 import { chatsCol, refreshChat } from "./chats";
+import { dropUndefined } from "./clean";
 import { logError } from "./errlog";
 import { getDb } from "./firebase";
 import { deleteDue, releaseBonuses, runCampaign, runningCampaigns, runScheduledDeletes, startDue } from "./network";
+import { processProofs } from "./proofs";
 import { processGrace, processRetention } from "./tasks";
 
 /**
@@ -17,7 +19,7 @@ export async function runTick(deadline: number) {
   const job = async (name: string, ms: number, fn: (until: number) => Promise<unknown>) => {
     const until = Math.min(deadline, Date.now() + ms);
     if (Date.now() >= deadline - 1000) { more = true; return; }
-    try { results[name] = await fn(until); } catch (e) { results[name] = "error"; await logError(`tick:${name}`, e); }
+    try { results[name] = (await fn(until)) ?? "ok"; } catch (e) { results[name] = "error"; await logError(`tick:${name}`, e); }
   };
 
   await job("scheduled_deletes", 4000, (u) => runScheduledDeletes(u));
@@ -27,6 +29,7 @@ export async function runTick(deadline: number) {
   });
   await job("network_release", 6000, async (u) => { const r = await releaseBonuses(u); if (r.more) more = true; return r; });
   await job("network_delete", 4000, (u) => deleteDue(u));
+  await job("proofs", 5000, (u) => processProofs(u));
   await job("grace", 6000, async (u) => { const r = await processGrace(u); if (r.more) more = true; return r; });
   await job("retention", 12000, async (u) => { const r = await processRetention(u); if (r.more) more = true; return r; });
   await job("broadcast", 8000, async (u) => {
@@ -46,6 +49,6 @@ export async function runTick(deadline: number) {
   });
 
   const summary = { at: Date.now(), ms: Date.now() - started, more, results };
-  await getDb().collection("meta").doc("tick").set(summary).catch(() => {});
-  return summary;
+  try { await getDb().collection("meta").doc("tick").set(dropUndefined(summary)); } catch (e) { await logError("tick:save", e); }
+  return dropUndefined(summary);
 }

@@ -58,6 +58,14 @@ All defaults are in `lib/config.ts`.
 4. Save. In the admin panel open **System**: it should say "running" within two minutes. **Run now** there tests it by hand.
 (The older `/api/cron/tick` path and the `Authorization: Bearer` header still work.)
 
+## Post, bot and reaction tasks
+Promote now has **Post views**, **Bot starts** and **Reactions** next to Channel and Group.
+- **Post views:** the promoter forwards the post to the bot. Workers get it forwarded to them, wait `tasks.viewWaitSeconds` (5), press Done and are paid at once (up to `tasks.viewDailyCap` views a day). Telegram doesn't tell us who really looked, so views are an estimate: the price is low on purpose.
+- **Bot starts and reactions:** the worker follows the instructions, then sends a screenshot. The promoter gets it with Approve / Reject (3 ready reasons). No answer within `tasks.proofAutoApproveHours` (24) means it is approved automatically.
+- **Disputes:** after a rejection the worker has `tasks.disputeHours` (24) to press Dispute. An admin sees the screenshot on the admin panel's **Disputes** page and either pays the worker or keeps the rejection.
+- **Money:** when a screenshot is sent, that unit's cost moves from the task's reserved money to "held". Approval pays the worker, a rejection keeps it held until the dispute window ends, then it returns to the task.
+- Prices are under Settings, Plans, Task prices.
+
 ## Leaving a task chat
 When a worker leaves a channel or group inside the retention window, they get a message with **Subscribe again** (link) and **Check again** buttons. If they rejoin (and press Check again, or Telegram reports the join) the reward stays. If `tasks.graceHours` (default 6) pass without them coming back, the penalty is taken and the promoter's task is refilled.
 

@@ -9,7 +9,11 @@ import { lbDoc } from "./leaderboard";
 import { incStats } from "./stats";
 import { dayKey, displayName, ledger, levelFor, round, usersCol, withDefaults } from "./users";
 
-export type TaskType = "channel" | "group";
+export type TaskType = "channel" | "group" | "post" | "bot" | "reaction";
+/** Join-and-stay tasks are checked for leaving; post views are instant; bot starts and reactions need a screenshot proof. */
+export const RETAINED_TYPES: TaskType[] = ["channel", "group"];
+export const PROOF_TYPES: TaskType[] = ["bot", "reaction"];
+export type TaskMeta = { fromChatId?: number; messageId?: number; postLink?: string; instruction?: string; botUsername?: string };
 export type TaskStatus = "active" | "paused" | "done" | "cancelled";
 
 export type TaskDoc = {
@@ -40,6 +44,9 @@ export type TaskDoc = {
   pauseReason?: string;
   botId?: string;
   premiumOnly?: boolean;
+  meta?: TaskMeta;
+  held?: number;
+  pending?: number;
 };
 
 export const tasksCol = () => getDb().collection("tasks");
@@ -95,7 +102,7 @@ export async function pauseTaskFatal(taskId: string) {
 export type NewTask = {
   ownerId: number; type: TaskType; chatId: number; username: string; title: string;
   count: number; countries: string[]; dailyBudget: number; startAt: number;
-  botId?: string; premiumOnly?: boolean; link?: string; reward?: number;
+  botId?: string; premiumOnly?: boolean; link?: string; reward?: number; meta?: TaskMeta;
   /** Paid directly in Telegram Stars: no balance is needed, the Stars value is booked as a deposit and spent at once. */
   paid?: { chargeId: string; stars: number };
 };
@@ -126,7 +133,7 @@ export async function createTask(p: NewTask) {
       total: p.count, remaining: p.count, completed: 0, reserved: total, spent: 0, status: "active",
       startAt: p.startAt, dailyBudget: p.dailyBudget, dailySpent: 0, dailyDay: "", countries: p.countries,
       reports: 0, leaves: 0, createdAt: now,
-      botId: p.botId ?? "", premiumOnly: !!p.premiumOnly,
+      botId: p.botId ?? "", premiumOnly: !!p.premiumOnly, meta: p.meta ?? {}, held: 0, pending: 0,
     };
     t.set(ref, doc);
 
@@ -244,6 +251,7 @@ export async function findTasks(user: ReturnType<typeof withDefaults>, type: Tas
   const refs = list.flatMap((t) => [
     compCol().doc(`${t.id}_${user.id}`),
     db.collection("reports").doc(`${t.id}_${user.id}`),
+    db.collection("proofs").doc(`${t.id}_${user.id}`),
   ]);
   const seen = new Set((await db.getAll(...refs)).filter((s) => s.exists).map((s) => s.id));
   return list.filter((t) => !seen.has(`${t.id}_${user.id}`)).slice(0, 5);
@@ -292,7 +300,7 @@ export async function completeTask(userId: number, taskId: string): Promise<Comp
     });
     t.set(cref, {
       taskId, userId, ownerId: task.ownerId, chatId: task.chatId, botId: task.botId ?? "", title: task.title, reward: task.reward,
-      cost: task.cost, commission: task.commission, payout, joinedAt: now, status: "active", nextCheckAt: now + 15 * 60_000,
+      cost: task.cost, commission: task.commission, payout, joinedAt: now, status: "active", ...(RETAINED_TYPES.includes(task.type) ? { nextCheckAt: now + 15 * 60_000 } : {}),
     });
     t.set(ledger(userId).doc(), {
       amount: payout, type: "task_complete", meta: { taskId, bonus }, balanceAfter: balance, createdAt: now,

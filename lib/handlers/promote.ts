@@ -3,12 +3,13 @@ import { registerChat } from "../chats";
 import { getConfig } from "../config";
 import { getDb } from "../firebase";
 import { L } from "../labels";
+import { parseBotRef, parsePostLink } from "../parse";
 import { NOT_ADMIN_HELP, pickerKeyboard } from "../picker";
 import { setState } from "../state";
 import { quote, saveDraft, type TaskDraft } from "../taskpay";
 import {
   addActions, createTask, getTask, myTasks, setTaskStatus, taskPrice,
-  type NewTask, type TaskDoc, type TaskType,
+  PROOF_TYPES, RETAINED_TYPES, type NewTask, type TaskDoc, type TaskType,
 } from "../tasks";
 import { fmt, mainMenu, show } from "../ui";
 import { getUser, type UserState } from "../users";
@@ -28,7 +29,25 @@ const errText = (e: unknown) => {
 function promoteMenu() {
   return new InlineKeyboard()
     .text("📢 Channel", "pro:new:channel").text("👥 Group", "pro:new:group").row()
+    .text("👁 Post views", "pro:new:post").text("🤖 Bot starts", "pro:new:bot").row()
+    .text("❤️ Reactions", "pro:new:reaction").row()
     .text("📋 My tasks", "pro:list").text("📑 Templates", "pro:tpl");
+}
+
+/** What one unit of each task kind is called in messages. */
+const UNIT: Record<TaskType, string> = { channel: "subscription", group: "member", post: "view", bot: "start", reaction: "reaction" };
+
+/** Same audience question for every kind (all users, or Premium only). */
+async function toAudience(ctx: Context, base: Record<string, unknown>) {
+  const cfg = await getConfig();
+  const type = base.type as TaskType;
+  await setState(ctx.from!.id, "promote:audience", base);
+  const all = taskPrice(type, cfg), prem = taskPrice(type, cfg, { premium: true });
+  const kb = new InlineKeyboard().text("1 · All users", "pro:aud:all").text("2 · Premium only", "pro:aud:prem");
+  await ctx.reply(
+    `Task audience\nCurrent: no restrictions\n\nChoose who can access the task:\n\n1️⃣ All users\nBroad reach. Minimum reward: ${fmt(all.min)} ${cfg.currency}.\n\n2️⃣ Telegram Premium only\nA higher-quality audience. Minimum reward: ${fmt(prem.min)} ${cfg.currency}.`,
+    { reply_markup: kb }
+  );
 }
 
 /* ---------- wizard steps (each one stores state and asks the next question) ---------- */
@@ -39,7 +58,7 @@ async function toPrice(ctx: Context, d: Record<string, unknown>) {
   await setState(ctx.from!.id, "promote:price", d);
   const kb = new InlineKeyboard().text(`Minimum ${fmt(p.min)}`, `pro:price:${p.min}`).text(`Recommended ${fmt(p.recommended)}`, `pro:price:${p.recommended}`);
   await ctx.reply(
-    `💲 Set the price for 1 ${d.type === "channel" ? "subscription" : "member"}. This is the worker's reward.\n\nMinimum — ${fmt(p.min)} ${cfg.currency}\nRecommended — ${fmt(p.recommended)} ${cfg.currency}\n\nCompletion speed depends on your price: higher rewards are shown first.\nSend a number or tap a button.`,
+    `💲 Set the price for 1 ${UNIT[d.type as TaskType]}. This is the worker's reward.\n\nMinimum — ${fmt(p.min)} ${cfg.currency}\nRecommended — ${fmt(p.recommended)} ${cfg.currency}\n\nCompletion speed depends on your price: higher rewards are shown first.\nSend a number or tap a button.`,
     { reply_markup: kb }
   );
 }
@@ -57,7 +76,7 @@ async function toCount(ctx: Context, d: Record<string, unknown>) {
   kb.text("⬅️ Back", "pro:menu");
   await show(
     ctx,
-    `ℹ️ Task creation commission — ${cfg.tasks.commissionPct}%\n\nPrice per ${d.type === "channel" ? "subscription" : "member"} — ${fmt(p.cost)} ${cfg.currency} (reward ${fmt(p.reward)} + fee)\nYour balance — ${fmt(u?.balance ?? 0)} ${cfg.currency}\n\nEnter the number you want (${cfg.tasks.minActions} to ${fmt(cfg.tasks.maxActions)}) or choose:`,
+    `ℹ️ Task creation commission — ${cfg.tasks.commissionPct}%\n\nPrice per ${UNIT[d.type as TaskType]} — ${fmt(p.cost)} ${cfg.currency} (reward ${fmt(p.reward)} + fee)\nYour balance — ${fmt(u?.balance ?? 0)} ${cfg.currency}\n\nEnter the number you want (${cfg.tasks.minActions} to ${fmt(cfg.tasks.maxActions)}) or choose:`,
     kb
   );
 }
@@ -104,7 +123,7 @@ async function toConfirm(ctx: Context, d: Draft) {
 
 function taskCard(t: TaskDoc, cur: string) {
   const retained = t.completed ? Math.round((1 - t.leaves / t.completed) * 100) : 100;
-  return `📌 ${t.title}\nStatus: ${t.status}${t.pauseReason ? ` (${t.pauseReason})` : ""}${t.premiumOnly ? "\nAudience: Premium only" : ""}\nReward each: ${fmt(t.reward)} ${cur}\nDone: ${t.completed}/${t.total}  Left to do: ${t.remaining}\nSpent: ${fmt(t.spent)} ${cur}  In escrow: ${fmt(t.reserved)} ${cur}\nRetention: ${retained}%  (left early: ${t.leaves}, auto-refilled)\nReports: ${t.reports}\nDaily: ${t.dailyBudget ? `${fmt(t.dailySpent)}/${fmt(t.dailyBudget)} today` : "no limit"}\nCountries: ${t.countries.length ? t.countries.join(", ") : "all"}`;
+  return `📌 ${t.title}\nStatus: ${t.status}${t.pauseReason ? ` (${t.pauseReason})` : ""}${t.premiumOnly ? "\nAudience: Premium only" : ""}\nReward each: ${fmt(t.reward)} ${cur}\nDone: ${t.completed}/${t.total}  Left to do: ${t.remaining}\nSpent: ${fmt(t.spent)} ${cur}  In escrow: ${fmt(t.reserved)} ${cur}\n${RETAINED_TYPES.includes(t.type) ? `Retention: ${retained}%  (left early: ${t.leaves}, auto-refilled)` : PROOF_TYPES.includes(t.type) ? `Waiting for your answer: ${t.pending ?? 0} proof(s)` : "Post views are instant"}\nReports: ${t.reports}\nDaily: ${t.dailyBudget ? `${fmt(t.dailySpent)}/${fmt(t.dailyBudget)} today` : "no limit"}\nCountries: ${t.countries.length ? t.countries.join(", ") : "all"}`;
 }
 
 async function taskView(ctx: Context, id: string) {
@@ -144,7 +163,19 @@ export function registerPromote(bot: Bot) {
     await ctx.answerCallbackQuery();
     const type = ctx.match[1] as TaskType;
     await setState(ctx.from.id, "promote:pick", { type });
-    await ctx.reply(`Choose a ${type === "channel" ? "channel" : "group"} to promote (the bot must be an admin).`, { reply_markup: pickerKeyboard(type, "promote") });
+    await ctx.reply(`Choose a ${type === "channel" ? "channel" : "group"} to promote (the bot must be an admin).`, { reply_markup: pickerKeyboard(type as "channel" | "group", "promote") });
+  });
+
+  bot.callbackQuery(/^pro:new:(post|bot|reaction)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const type = ctx.match[1] as "post" | "bot" | "reaction";
+    const prompt = {
+      post: "👁 Forward the post you want people to view to this chat.\n\nTip: forward it from a public channel so the source is shown. The bot will forward it to workers.",
+      bot: "🤖 Send the bot's @username or link (a link with ?start=… is fine).",
+      reaction: "❤️ Send the link of the post people must react to, like https://t.me/channel/123",
+    }[type];
+    await setState(ctx.from.id, type === "post" ? "promote:post" : type === "bot" ? "promote:bot" : "promote:rlink", { type });
+    await ctx.reply(prompt, { reply_markup: new InlineKeyboard().text("⬅️ Back", "pro:menu") });
   });
 
   bot.callbackQuery(/^pro:aud:(all|prem)$/, async (ctx) => {
@@ -222,7 +253,7 @@ export function registerPromote(bot: Bot) {
       `${fmt(d.count)} × ${fmt(q.reward)} ${cfg.currency} reward. Non-refundable. Your task starts right after payment.`,
       `tsk:${id}`,
       "XTR",
-      [{ label: `${fmt(d.count)} ${d.type === "channel" ? "subscriptions" : "members"}`, amount: q.stars }]
+      [{ label: `${fmt(d.count)} ${UNIT[d.type]}s`, amount: q.stars }]
     );
   });
 
@@ -319,14 +350,8 @@ export async function promoteChatShared(ctx: Context, st: UserState) {
     if (!link) return void (await ctx.reply("This chat is private and I can't create an invite link. Make it public, or give me the “Invite users” right.", { reply_markup: mainMenu }));
 
     const title = doc?.title ?? ("title" in info ? info.title : String(chatId));
-    await setState(uid, "promote:audience", { type, chatId, username, title, link });
     await ctx.reply(`You shared ${title}.`, { reply_markup: mainMenu });
-    const all = taskPrice(type, cfg), prem = taskPrice(type, cfg, { premium: true });
-    const kb = new InlineKeyboard().text("1 · All users", "pro:aud:all").text("2 · Premium only", "pro:aud:prem");
-    await ctx.reply(
-      `Task audience\nCurrent: no restrictions\n\nChoose who can access the task:\n\n1️⃣ All users\nBroad reach. Minimum reward: ${fmt(all.min)} ${cfg.currency}.\n\n2️⃣ Telegram Premium only\nA higher-quality audience. Minimum reward: ${fmt(prem.min)} ${cfg.currency}.`,
-      { reply_markup: kb }
-    );
+    await toAudience(ctx, { type, chatId, username, title, link });
   } catch (e) {
     console.error("promote chat_shared", e);
     await ctx.reply("I couldn't read that chat. Make sure I'm an admin there and try again.", { reply_markup: mainMenu });
@@ -389,5 +414,40 @@ export async function promoteText(ctx: Context, st: UserState) {
       await setState(uid, null);
       return void (await ctx.reply(errText(e)));
     }
+  }
+}
+
+/** The promoter forwarded (or sent) the post that workers should view. */
+export async function promoteMessage(ctx: Context, st: UserState) {
+  const m = ctx.message!;
+  const text = m.text || m.caption || "";
+  const origin = (m as { forward_origin?: { type: string; chat?: { username?: string }; message_id?: number } }).forward_origin;
+  const link = origin?.type === "channel" && origin.chat?.username && origin.message_id ? `https://t.me/${origin.chat.username}/${origin.message_id}` : "";
+  const title = `Post: ${(text || "media post").replace(/\s+/g, " ").slice(0, 28)}`;
+  if (!origin) await ctx.reply("Note: this wasn't forwarded from a channel, so workers will see it as a message from the bot.");
+  await toAudience(ctx, { type: "post", chatId: 0, username: "", title, link, meta: { fromChatId: ctx.chat!.id, messageId: m.message_id, postLink: link } });
+}
+
+/** Text steps for bot starts and reactions. */
+export async function promoteKindText(ctx: Context, st: UserState) {
+  const text = ctx.message!.text!.trim();
+  const d = st.data as Record<string, unknown>;
+  if (st.step === "promote:bot") {
+    const ref = parseBotRef(text);
+    if (!ref) return void (await ctx.reply("Send a bot username ending in “bot”, like @mybot, or its t.me link."));
+    await setState(ctx.from!.id, "promote:binst", { ...d, chatId: 0, username: ref.username, title: `@${ref.username}`, link: ref.link, meta: { botUsername: ref.username } });
+    return void (await ctx.reply("What should people do in the bot? One short line, like “Press Start and wait for the welcome message”."));
+  }
+  if (st.step === "promote:binst") {
+    return void (await toAudience(ctx, { ...d, meta: { ...(d.meta as object), instruction: text.slice(0, 200) } }));
+  }
+  if (st.step === "promote:rlink") {
+    const post = parsePostLink(text);
+    if (!post) return void (await ctx.reply("Send a post link like https://t.me/channel/123"));
+    await setState(ctx.from!.id, "promote:rinst", { ...d, chatId: 0, username: "", title: `Reaction: ${post.link.replace("https://t.me/", "")}`, link: post.link, meta: { postLink: post.link } });
+    return void (await ctx.reply("Which reaction should people leave? For example ❤️ (or write: any)"));
+  }
+  if (st.step === "promote:rinst") {
+    return void (await toAudience(ctx, { ...d, meta: { ...(d.meta as object), instruction: `React with ${text.slice(0, 30)}` } }));
   }
 }

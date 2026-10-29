@@ -1,4 +1,5 @@
 import { listBots } from "@/lib/bots";
+import { proofsCol } from "@/lib/proofs";
 import { estimate, whyNot, type BonusRule, type TargetSpec } from "@/lib/network";
 import { chatsCol, withChatDefaults } from "@/lib/chats";
 import { getConfig } from "@/lib/config";
@@ -133,6 +134,25 @@ export async function POST(req: Request) {
         if (!can(role, "network")) return deny();
         const r = await estimate(body.target as TargetSpec, body.bonus as BonusRule);
         return ok({ ...r, needsApproval: r.totalBonus > cfg.network.approvalAbove });
+      }
+
+      case "disputes": {
+        if (!can(role, "tasks")) return deny();
+        const [d, pending] = await Promise.all([
+          proofsCol().where("status", "==", "disputed").limit(50).get(),
+          proofsCol().where("status", "==", "pending").count().get(),
+        ]);
+        const list = d.docs.map((x) => x.data());
+        const owners = [...new Set(list.map((p) => p.ownerId))];
+        const docs = owners.length ? await db.getAll(...owners.map((id) => usersCol().doc(String(id)))) : [];
+        const stats = new Map(docs.map((o) => [Number(o.id), { approved: o.data()?.proofsApproved ?? 0, rejected: o.data()?.proofsRejected ?? 0 }]));
+        return ok({
+          pending: pending.data().count,
+          disputes: list.map((p) => ({
+            id: p.id, title: p.title, type: p.type, userId: p.userId, ownerId: p.ownerId, reason: p.reason, reward: p.reward,
+            submittedAt: p.submittedAt, disputedAt: p.disputedAt, owner: stats.get(p.ownerId) ?? { approved: 0, rejected: 0 },
+          })),
+        });
       }
 
       case "bots": {

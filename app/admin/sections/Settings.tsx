@@ -53,7 +53,7 @@ function Json({ path, value, onSave }: { path: string; value: any; onSave: (p: s
 }
 
 /** Everything shown as a table in Plans is hidden from the generic list. */
-const PLAN_PATHS = new Set(["levels", "referralTiers", "deposit.packages", "deposit.bonusTiers", "usdt.packages", "usdt.bonusTiers", "achievements", "tasks.channel", "tasks.group"]);
+const PLAN_PATHS = new Set(["levels", "referralTiers", "deposit.packages", "deposit.bonusTiers", "usdt.packages", "usdt.bonusTiers", "achievements", "tasks.channel", "tasks.group", "tasks.post", "tasks.bot", "tasks.reaction"]);
 
 function Node({ path, value, onSave, root }: { path: string; value: any; onSave: (p: string, v: unknown) => Promise<boolean>; root?: boolean }) {
   if (PLAN_PATHS.has(path)) return null;

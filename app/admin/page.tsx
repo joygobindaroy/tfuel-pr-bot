@@ -8,6 +8,7 @@ import Broadcast from "./sections/Broadcast";
 import Network from "./sections/Network";
 import System from "./sections/System";
 import Dashboard from "./sections/Dashboard";
+import Disputes from "./sections/Disputes";
 import Promos from "./sections/Promos";
 import Settings from "./sections/Settings";
 import Tasks from "./sections/Tasks";
@@ -23,6 +24,7 @@ const NAV: { id: string; label: string; icon: string; perm: string | null; sub: 
   { id: "dashboard", label: "Dashboard", icon: "dashboard", perm: null, sub: "How the bot is doing right now" },
   { id: "users", label: "Users", icon: "users", perm: "users.view", sub: "Find people, ban, adjust balances" },
   { id: "tasks", label: "Tasks", icon: "tasks", perm: "tasks", sub: "Promotions people are running" },
+  { id: "disputes", label: "Disputes", icon: "disputes", perm: "tasks", sub: "Rejected proofs a worker disagrees with" },
   { id: "tickets", label: "Tickets", icon: "tickets", perm: "tickets", sub: "Support requests waiting for a reply" },
   { id: "promos", label: "Promo codes", icon: "promo", perm: "promo", sub: "Create and retire codes" },
   { id: "broadcast", label: "Broadcast", icon: "broadcast", perm: "broadcast", sub: "Message a segment of users" },
@@ -128,6 +130,7 @@ export default function AdminPage() {
           {current.id === "dashboard" && <Dashboard go={go} />}
           {current.id === "users" && <Users role={me.role} arg={route.arg} />}
           {current.id === "tasks" && <Tasks arg={route.arg} />}
+          {current.id === "disputes" && <Disputes />}
           {current.id === "tickets" && <Tickets />}
           {current.id === "promos" && <Promos />}
           {current.id === "broadcast" && <Broadcast />}

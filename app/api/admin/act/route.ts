@@ -5,6 +5,7 @@ import { backfillFromTasks, chatsCol } from "@/lib/chats";
 import { runTick } from "@/lib/jobs";
 import { approveCampaign, cancelCampaign, createCampaign, runCampaign, testPost, type NewCampaign } from "@/lib/network";
 import { runBroadcast } from "@/lib/broadcast";
+import { approveProof, releaseProof } from "@/lib/proofs";
 import { FieldValue } from "firebase-admin/firestore";
 import { getConfig } from "@/lib/config";
 import { startBroadcast, validSegment } from "@/lib/broadcast";
@@ -252,6 +253,20 @@ export async function POST(req: Request) {
         return done("Saved.");
       }
 
+      case "proof_decide": {
+        if (!need("tasks")) return deny();
+        const id = String(b.id);
+        if (b.decision === "pay") {
+          const r = await approveProof(id, "admin");
+          if (!r) return bad("This dispute was already handled.");
+          await audit(adminId, "proof_pay", id);
+          return done(`Paid the worker ${r.payout}.`);
+        }
+        const p = await releaseProof(id, true);
+        if (!p) return bad("This dispute was already handled.");
+        await audit(adminId, "proof_reject", id);
+        return done("Rejection kept. The money went back to the task.");
+      }
       case "chats_backfill": {
         if (!need("network")) return deny();
         const r = await backfillFromTasks();

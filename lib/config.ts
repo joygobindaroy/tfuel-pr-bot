@@ -45,6 +45,13 @@ export const DEFAULT_CONFIG = {
   tasks: {
     channel: { reward: 30, premiumReward: 55 }, // paid to the user per subscribe (premiumReward = Premium-only audience)
     group: { reward: 20, premiumReward: 38 },
+    post: { reward: 3, premiumReward: 6 }, // views (no proof, small reward)
+    bot: { reward: 40, premiumReward: 70 }, // bot starts (screenshot proof)
+    reaction: { reward: 12, premiumReward: 22 }, // reactions (screenshot proof)
+    viewWaitSeconds: 5, // minimum time before "Done" counts as a view
+    viewDailyCap: 100, // views one person can be paid for per day
+    proofAutoApproveHours: 24, // a proof nobody answers is approved after this long
+    disputeHours: 24, // after a rejection the worker can dispute for this long
     targetingFee: 5, // added per unit when countries are restricted
     recommendedMult: 1.2, // "recommended price" shown to promoters = minimum x this
     starsDiscountPct: 10, // paying a task directly in Stars costs this % less than paying from balance

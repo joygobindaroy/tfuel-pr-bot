@@ -11,7 +11,8 @@ import { actions, labelSet } from "./handlers/actions";
 import { chatsChatShared, registerChats } from "./handlers/chats";
 import { registerDeposit } from "./handlers/deposit";
 import { registerEarn } from "./handlers/earn";
-import { promoteChatShared, promoteText, registerPromote } from "./handlers/promote";
+import { promoteChatShared, promoteKindText, promoteMessage, promoteText, registerPromote } from "./handlers/promote";
+import { proofPhoto, registerProofs } from "./handlers/proofs";
 import { registerGroupGate } from "./mandatory";
 import { netStart } from "./network";
 import { creditDeposit } from "./payments";
@@ -191,9 +192,23 @@ export function createBot(token: string): Bot {
 
   registerEarn(bot);
   registerPromote(bot);
+  registerProofs(bot);
   registerDeposit(bot);
   registerAccount(bot);
   registerChats(bot);
+
+  bot.command("cancel", async (ctx) => { await setState(ctx.from!.id, null); await ctx.reply("Cancelled.", { reply_markup: mainMenu }); });
+
+  // Non-text answers: the forwarded post for a new post task, and a screenshot proof from a worker.
+  bot.on("message", async (ctx, next) => {
+    const st = ctx.user.state;
+    if (st && Date.now() - st.at <= 30 * 60_000) {
+      if (st.step === "promote:post") return promoteMessage(ctx, st);
+      if (st.step === "proof:wait" && ctx.message.photo) return proofPhoto(ctx, st);
+      if (st.step === "proof:wait" && !ctx.message.text) return void (await ctx.reply("Please send the screenshot as a photo, or /cancel."));
+    }
+    return next();
+  });
 
   bot.on("message:chat_shared", async (ctx) => {
     const st = ctx.user.state;
@@ -205,6 +220,8 @@ export function createBot(token: string): Bot {
   bot.on("message:text", async (ctx) => {
     const st = ctx.user.state;
     if (!st || Date.now() - st.at > 30 * 60_000) return;
+    if (st.step === "proof:wait") return void (await ctx.reply("Please send the screenshot as a photo, or /cancel."));
+    if (["promote:bot", "promote:binst", "promote:rlink", "promote:rinst"].includes(st.step)) return promoteKindText(ctx, st);
     if (st.step.startsWith("promote:")) return promoteText(ctx, st);
     return accountText(ctx, st);
   });

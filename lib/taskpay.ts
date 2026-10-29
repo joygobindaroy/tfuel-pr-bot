@@ -1,12 +1,13 @@
 import { FieldValue } from "firebase-admin/firestore";
 import type { AppConfig } from "./config";
 import { getDb } from "./firebase";
-import { createTask, taskPrice, type TaskType } from "./tasks";
+import { createTask, taskPrice, type TaskMeta, type TaskType } from "./tasks";
 import { ledger, round, usersCol, withDefaults } from "./users";
 
 export type TaskDraft = {
   type: TaskType; chatId: number; username: string; title: string; link: string;
   premiumOnly: boolean; reward: number; count: number; countries: string[]; dailyBudget: number; startAt: number;
+  meta?: TaskMeta;
 };
 
 /** Stars needed to pay a TFUEL total directly (cheaper than paying from balance by starsDiscountPct). */

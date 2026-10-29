@@ -34,13 +34,14 @@ export async function POST(req: Request) {
   }
   if (can(role, "fraud")) {
     await section("attention", async () => {
-      const [tickets, reported, banned, risky] = await Promise.all([
+      const [tickets, reported, banned, risky, disputes] = await Promise.all([
         db.collection("tickets").where("status", "==", "open").count().get(),
         db.collection("tasks").where("reports", ">", 0).count().get(),
         db.collection("users").where("banned", "==", true).count().get(),
         db.collection("users").orderBy("risk.score", "desc").limit(8).get(),
+        db.collection("proofs").where("status", "==", "disputed").count().get(),
       ]);
-      out.attention = { openTickets: tickets.data().count, reportedTasks: reported.data().count, banned: banned.data().count };
+      out.attention = { openTickets: tickets.data().count, reportedTasks: reported.data().count, banned: banned.data().count, disputes: disputes.data().count };
       out.risky = risky.docs.map((d) => {
         const u = d.data();
         return { id: u.id, username: u.username, score: u.risk?.score ?? 0, flags: u.risk?.flags ?? [], country: u.country, banned: u.banned };

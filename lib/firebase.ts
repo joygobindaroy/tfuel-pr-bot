@@ -1,6 +1,8 @@
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
+let configured = false;
+
 // Lazy so that builds without env vars do not crash.
 export function getDb() {
   const app =
@@ -12,5 +14,11 @@ export function getDb() {
         privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
       }),
     });
-  return getFirestore(app);
+  const db = getFirestore(app);
+  if (!configured) {
+    // An undefined field must never crash a write: Firestore throws on it synchronously, which .catch() can't intercept.
+    try { db.settings({ ignoreUndefinedProperties: true }); } catch { /* already initialised */ }
+    configured = true;
+  }
+  return db;
 }

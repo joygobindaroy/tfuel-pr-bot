@@ -97,6 +97,7 @@ const ICONS: Record<string, string> = {
   network: "M7.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM21.5 5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM21.5 19a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM7.2 10.8l9.6-4.6M7.2 13.2l9.6 4.6",
   bots: "M7 8h10a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3zM12 4v4M9 13.5h.01M15 13.5h.01",
   system: "M3 12h4l3-8 4 16 3-8h4",
+  disputes: "M12 3v18M6 21h12M5 7h14M5 7l-3 7a3 3 0 0 0 6 0L5 7zM19 7l-3 7a3 3 0 0 0 6 0l-3-7z",
 };
 export const Icon = ({ name }: { name: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICONS[name]} /></svg>
